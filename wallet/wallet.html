@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Crypto Portfolio Dashboard</title>
+    <link rel="stylesheet" href="wallet.css">
+</head>
+<body>
+    <div class="dashboard">
+        <header>
+            <h1>My Crypto Portfolio</h1>
+            <div class="clock" id="clock"></div>
+        </header>
+
+        <section class="portfolio">
+            <h2>Current Holdings</h2>
+            <ul id="crypto-list">
+                <!-- Static data for now, to be dynamically updated -->
+                <li>BTC: <span class="amount">0.5</span> BTC - <span class="value">$30,000</span></li>
+                <li>ETH: <span class="amount">2.0</span> ETH - <span class="value">$4,000</span></li>
+                <li>USDT: <span class="amount">1000</span> USDT - <span class="value">$1,000</span></li>
+            </ul>
+            <div class="summary">
+                <p>Total Value: <span id="total-value">$35,000</span></p>
+                <p>Profit: <span id="profit">$5,000</span></p>
+                <p>Free: <span id="free-funds">$34,000</span>, Locked: <span id="locked-funds">$1,000</span></p>
+            </div>
+        </section>
+
+        <section class="orders">
+            <h2>Active Orders</h2>
+            <ul id="orders-list">
+                <li>Buy: 0.1 BTC at $60,000 (Limit Order)</li>
+                <li>Sell: 1.0 ETH at $2,500 (Limit Order)</li>
+            </ul>
+        </section>
+    </div>
+
+    <script src="wallet.js"></script>
+</body>
+</html>
