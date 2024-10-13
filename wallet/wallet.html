@@ -4,22 +4,122 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Crypto Portfolio Dashboard</title>
-    <link rel="stylesheet" href="wallet.css">
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+            background-color: #121212;
+            color: #e0e0e0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+
+        .dashboard {
+            max-width: 800px;
+            width: 90%;
+            padding: 30px;
+            background-color: #1e1e1e;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+            text-align: center;
+        }
+
+        header h1 {
+            font-size: 2.5em;
+            color: #00d9a5;
+            margin-bottom: 20px;
+        }
+
+        .clock {
+            font-size: 1.3em;
+            color: #00a6ff;
+            margin-bottom: 30px;
+        }
+
+        h2 {
+            color: #f1f1f1;
+            margin-bottom: 15px;
+            border-bottom: 2px solid #333;
+            padding-bottom: 10px;
+        }
+
+        ul {
+            list-style-type: none;
+            text-align: left;
+            margin: 0;
+            padding: 0;
+        }
+
+        li {
+            padding: 15px 0;
+            font-size: 1.2em;
+            display: flex;
+            justify-content: space-between;
+            border-bottom: 1px solid #333;
+        }
+
+        .amount {
+            color: #00a6ff;
+        }
+
+        .value {
+            color: #00d9a5;
+        }
+
+        .summary p {
+            margin: 10px 0;
+            font-size: 1.2em;
+        }
+
+        .summary span {
+            font-weight: bold;
+        }
+
+        .orders-list {
+            margin-top: 20px;
+        }
+
+        .orders-list li {
+            padding: 10px 0;
+            font-size: 1.1em;
+            display: flex;
+            justify-content: space-between;
+            border-bottom: 1px solid #444;
+        }
+
+        .orders-list li span {
+            color: #ff7675;
+        }
+        
+        footer {
+            margin-top: 30px;
+            font-size: 0.9em;
+            color: #888;
+        }
+
+    </style>
 </head>
 <body>
     <div class="dashboard">
         <header>
             <h1>My Crypto Portfolio</h1>
-            <div class="clock" id="clock"></div>
+            <div class="clock" id="clock">20:17:32</div>
         </header>
 
         <section class="portfolio">
             <h2>Current Holdings</h2>
             <ul id="crypto-list">
-                <!-- Static data for now, to be dynamically updated -->
-                <li>BTC: <span class="amount">0.5</span> BTC - <span class="value">$30,000</span></li>
-                <li>ETH: <span class="amount">2.0</span> ETH - <span class="value">$4,000</span></li>
-                <li>USDT: <span class="amount">1000</span> USDT - <span class="value">$1,000</span></li>
+                <li><span>BTC:</span> <span class="amount">0.5 BTC - </span><span class="value">$30,000</span></li>
+                <li><span>ETH:</span> <span class="amount">2.0 ETH - </span><span class="value">$4,000</span></li>
+                <li><span>USDT:</span> <span class="amount">1000 USDT - </span><span class="value">$1,000</span></li>
             </ul>
             <div class="summary">
                 <p>Total Value: <span id="total-value">$35,000</span></p>
@@ -30,13 +130,26 @@
 
         <section class="orders">
             <h2>Active Orders</h2>
-            <ul id="orders-list">
-                <li>Buy: 0.1 BTC at $60,000 (Limit Order)</li>
-                <li>Sell: 1.0 ETH at $2,500 (Limit Order)</li>
+            <ul class="orders-list" id="orders-list">
+                <li><span>Buy:</span> <span>0.1 BTC at $60,000</span> <span>(Limit Order)</span></li>
+                <li><span>Sell:</span> <span>1.0 ETH at $2,500</span> <span>(Limit Order)</span></li>
             </ul>
         </section>
+        
+        <footer>
+            <p>&copy; 2024 Crypto Tracker</p>
+        </footer>
     </div>
 
-    <script src="wallet.js"></script>
+    <script>
+        // JavaScript to update the clock dynamically
+        function updateClock() {
+            const clock = document.getElementById('clock');
+            const now = new Date();
+            clock.textContent = now.toLocaleTimeString();
+        }
+        setInterval(updateClock, 1000);
+        updateClock();  // initial call
+    </script>
 </body>
 </html>
