@@ -5,6 +5,7 @@ import pandas as pd
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+import numpy as np
 import json
 
 
@@ -16,6 +17,7 @@ class BinanceTrader:
         self.orders_id = set()
         self.profit = 0.00
 
+        self.working_percentage = 0.3
         self.buy_percentage = 0.1
         self.sell_percentage = 0.1
 
@@ -80,6 +82,38 @@ class BinanceTrader:
 
         return df
 
+    def send_email_notification(self, subject, message, to_email = os.getenv('RECEIVER_EMAIL')):
+        """
+        Function to send an email notification.
+
+        :param to_email: The recipient's email address
+        :param subject: Email subject
+        :param message: Email message content
+        """
+        try:
+            from_email = os.getenv('SENDER_EMAIL')
+            email_password = os.getenv('SENDER_EMAIL_KEY')
+
+            msg = MIMEMultipart()
+            msg['From'] = from_email
+            msg['To'] = to_email
+            msg['Subject'] = subject
+
+            # Attach the message
+            msg.attach(MIMEText(message, 'plain'))
+
+            # Send the email
+            server = smtplib.SMTP('smtp.gmail.com', 587)
+            server.starttls()
+            server.login(from_email, email_password)
+            text = msg.as_string()
+            server.sendmail(from_email, to_email, text)
+            server.quit()
+
+            print("Email notification sent successfully!")
+        except Exception as e:
+            print(f"Error sending email: {e}")
+
     def get_order_status(self, trading_pair, order_id):
         """
         Function to retrieve the status of a specific order on Binance.
@@ -124,83 +158,6 @@ class BinanceTrader:
             print(f"Error retrieving wallet balances: {e}")
             return {}
 
-    def is_local_peak(self, symbol, interval='1h', lookback_period=5):
-        """
-        Function to determine if the current price of a cryptocurrency is a local peak.
-
-        :param symbol: The trading pair symbol, e.g., 'BTCUSDT'
-        :param interval: Time interval for historical data (default is '1h')
-        :param lookback_period: Number of periods to check for a local peak (default is 5)
-
-        :return: True if the current price is a local peak, otherwise False
-        """
-        try:
-            interval_to_days = {
-                '1h': 1 / 24,
-                '1d': 1,
-                '1w': 7,
-                '1M': 30,
-                '1Y': 365
-            }
-            days = lookback_period * interval_to_days.get(interval, 1)
-            klines = self.client.get_historical_klines(symbol, interval, f"{days} days ago UTC")
-
-            closing_prices = [float(kline[4]) for kline in klines]
-            current_price = closing_prices[-1]
-
-            is_peak = all(current_price > closing_prices[-(i + 2)] for i in range(lookback_period))
-            return is_peak
-        except Exception as e:
-            print(f"Error determining local peak: {e}")
-            return False
-
-    def send_email_notification(self, subject, message, to_email = os.getenv('RECEIVER_EMAIL')):
-        """
-        Function to send an email notification.
-
-        :param to_email: The recipient's email address
-        :param subject: Email subject
-        :param message: Email message content
-        """
-        try:
-            from_email = os.getenv('SENDER_EMAIL')
-            email_password = os.getenv('SENDER_EMAIL_KEY')
-
-            msg = MIMEMultipart()
-            msg['From'] = from_email
-            msg['To'] = to_email
-            msg['Subject'] = subject
-
-            # Attach the message
-            msg.attach(MIMEText(message, 'plain'))
-
-            # Send the email
-            server = smtplib.SMTP('smtp.gmail.com', 587)
-            server.starttls()
-            server.login(from_email, email_password)
-            text = msg.as_string()
-            server.sendmail(from_email, to_email, text)
-            server.quit()
-
-            print("Email notification sent successfully!")
-        except Exception as e:
-            print(f"Error sending email: {e}")
-
-    def notify_if_worth_buying(self, symbol):
-        """
-        Function that checks if it's worth buying a cryptocurrency (based on local peak check)
-        and sends an email notification if true.
-
-        :param symbol: The trading pair symbol, e.g., 'BTCUSDT'
-
-        """
-        if self.is_local_peak(symbol):
-            subject = f"Opportunity to buy {symbol}"
-            message = f"The price of {symbol} is at a local peak. It might be a good time to buy."
-            self.send_email_notification(subject, message)
-        else:
-            print(f"No buying opportunity for {symbol} at the moment.")
-
     def get_all_trading_pairs(self):
         """
         Function to get all trading pairs (symbols) available on Binance.
@@ -213,93 +170,95 @@ class BinanceTrader:
             print(f"Error retrieving trading pairs: {e}")
             return []
 
-    def notify_if_worth_buying_all_symbols(self, interval='1h', lookback_period=5):
+    def get_orders(self, symbol=None, include_historical=False):
         """
-        Function to check if it's worth buying any cryptocurrency and send email notifications.
+        Retrieve active and historical orders from Binance.
+
+        Parameters:
+        symbol (str): The trading pair symbol for historical orders (e.g., 'BTCUSDT').
+        include_historical (bool): Flag to indicate whether to fetch historical orders.
+
+        Returns:
+        dict: A dictionary containing two lists:
+            - 'buy_orders': List of active and/or historical buy orders.
+            - 'sell_orders': List of active and/or historical sell orders.
         """
-        symbols = self.get_all_trading_pairs()
-        for symbol in symbols:
-            if self.is_local_peak(symbol, interval, lookback_period):
-                subject = f"Opportunity to buy {symbol}"
-                message = f"The price of {symbol} is at a local peak. It might be a good time to buy."
-                self.send_email_notification(subject, message)
-            else:
-                print(f"No buying opportunity for {symbol} at the moment.")
 
-    # def get_orders(self, trading_pair=None, order_status="all"):
-    #     """
-    #     Function to retrieve open or all orders for a specific trading pair or all symbols.
-        
-    #     :param trading_pair: Optional. The trading pair symbol, e.g., 'BTCUSDT'. If None, fetches for all symbols.
-    #     :param order_status: Optional. Specifies whether to fetch 'open', 'all', or 'closed' orders. Default is 'all'.
-        
-    #     :return: List of orders.
-    #     """
-    #     try:
-    #         orders = []
-            
-    #         # Fetch open orders if order_status is 'open'
-    #         if order_status == "open":
-    #             if trading_pair:
-    #                 orders = self.client.get_open_orders(symbol=trading_pair)
-    #             else:
-    #                 orders = self.client.get_open_orders()  # Fetch open orders for all symbols
-            
-    #         # Fetch all orders if order_status is 'all' or closed orders if order_status is 'closed'
-    #         elif order_status in ["all", "closed"]:
-    #             symbols = [trading_pair] if trading_pair else self.get_all_trading_pairs()
-                
-    #             for symbol in symbols:
-    #                 all_orders = self.client.get_all_orders(symbol=symbol)
-                    
-    #                 # Filter closed orders if needed
-    #                 if order_status == "closed":
-    #                     closed_orders = [order for order in all_orders if order['status'] in ['FILLED', 'CANCELED']]
-    #                     orders.extend(closed_orders)
-    #                 else:
-    #                     orders.extend(all_orders)
-            
-    #         # Return the retrieved orders
-    #         return orders
-        
-    #     except Exception as e:
-    #         print(f"Error retrieving orders: {e}")
-    #         return []
-
-    def get_orders(self, include_historical=False):
-
-        
-        # Pobierz aktywne zlecenia
+        # Fetch active orders from Binance
         active_orders = self.client.get_open_orders()
-        
+
         buy_orders = []
         sell_orders = []
         
+        # Separate active orders into buy and sell lists
         for order in active_orders:
             if order['side'] == 'BUY':
                 buy_orders.append(order)
             elif order['side'] == 'SELL':
                 sell_orders.append(order)
 
-        # Jeśli flaga include_historical jest True, pobierz także stare zlecenia
-        if include_historical:
-            historical_orders = self.client.get_all_orders()
+        # If the include_historical flag is True and a symbol is provided, fetch historical orders
+        if include_historical and symbol:
+            historical_orders = self.client.get_all_orders(symbol=symbol)
+            print("Historical orders:", historical_orders)  # Logging for debugging
 
+            # Filter historical orders to include only those that are not active
             for order in historical_orders:
-                if order['status'] not in ['NEW', 'PARTIALLY_FILLED']:  # Pobieramy tylko nieaktywne zlecenia
+                if order['status'] not in ['NEW', 'PARTIALLY_FILLED']:  # Retrieve only inactive orders
                     if order['side'] == 'BUY':
                         buy_orders.append(order)
                     elif order['side'] == 'SELL':
                         sell_orders.append(order)
         
+        # Return a dictionary with buy and sell orders
         return {'buy_orders': buy_orders, 'sell_orders': sell_orders}
+
+    def moving_average(self, data, period):
+        """
+        Calculate simple moving average (SMA).
+        
+        :param data: List of prices
+        :param period: Window size for the moving average
+        :return: SMA for the given period
+        """
+        return np.convolve(data, np.ones(period), 'valid') / period
+
+    def is_on_peak(self, symbol, short_term_window=7, long_term_window=50):
+        """
+        Check if the cryptocurrency is on a peak (upward trend) or dip (downward trend).
+        
+        :param symbol: The trading pair (e.g., 'BTCUSDT')
+        :param short_term_window: Period for the short-term moving average (default 7 days)
+        :param long_term_window: Period for the long-term moving average (default 50 days)
+        :return: True if in upward trend (local peak), False if downward trend (local dip)
+        """
+        data = self.get_historical_data(symbol)
+        
+        # Calculate moving averages
+        short_term_ma = self.moving_average(data, short_term_window)
+        long_term_ma = self.moving_average(data, long_term_window)
+        
+        # Check the most recent values to determine trend
+        if short_term_ma[-1] > long_term_ma[-1]:  # Latest short-term MA above long-term MA
+            return True  # Local peak (upward trend)
+        else:
+            return False  # Local dip (downward trend)
+
+    def get_historical_data(self, symbol, interval='1d'):
+        """
+        Fetch historical price data for a given symbol (cryptocurrency)
+        from Binance API.
+        
+        :param symbol: Trading pair (e.g., 'BTCUSDT')
+        :param interval: Interval for data ('1d' for daily candles, '1h' for hourly candles)
+        :param lookback: How much historical data to fetch (e.g., '100 days' or '30 minutes')
+        :return: List of closing prices
+        """
+        candles = self.client.get_klines(symbol=symbol, interval=interval)
+        closes = [float(candle[4]) for candle in candles]  # Extracting the closing price
+        return closes
 
 # Example usage
 trader = BinanceTrader()
 
-# Example: Check if it's worth buying BTC and send an email if true
-# trader.notify_if_worth_buying('BTCUSDT')
-
-# print(trader.get_order_status())
-
-print(json.dumps(trader.get_orders(True),indent=4))
+print(json.dumps(trader.get_orders(),indent=4))
