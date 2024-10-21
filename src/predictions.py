@@ -7,6 +7,7 @@ from xgboost import XGBClassifier
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import accuracy_score
 import talib
+from datetime import datetime
 
 # API Keys (replace with your own)
 api_key = 'YOUR_BINANCE_API_KEY'
@@ -14,6 +15,30 @@ api_secret = 'YOUR_BINANCE_API_SECRET'
 
 # Initialize Binance Client
 client = Client(api_key, api_secret)
+
+# Pobieranie najnowszych danych z Binance
+def get_latest_data(symbol, interval, lookback='1 day'):
+    """
+    Pobiera dane za ostatni dzień lub inny okres.
+    lookback: np. '1 day' oznacza 1 dzień wstecz
+    """
+    # Pobierz dzisiejszą datę
+    now = datetime.now()
+    # Pobierz dane za ostatni dzień
+    klines = client.get_historical_klines(symbol, interval, lookback, now.strftime("%d %b, %Y"))
+    
+    df = pd.DataFrame(klines, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume', 
+                                       'close_time', 'quote_asset_volume', 'number_of_trades', 
+                                       'taker_buy_base_asset_volume', 'taker_buy_quote_asset_volume', 'ignore'])
+    
+    # Konwertuj dane na wartości numeryczne
+    df['open'] = pd.to_numeric(df['open'])
+    df['high'] = pd.to_numeric(df['high'])
+    df['low'] = pd.to_numeric(df['low'])
+    df['close'] = pd.to_numeric(df['close'])
+    df['volume'] = pd.to_numeric(df['volume'])
+    
+    return df
 
 # Function to fetch historical data from Binance
 def get_historical_data(symbol, interval, start_str, end_str):
@@ -33,8 +58,8 @@ def get_historical_data(symbol, interval, start_str, end_str):
 # Fetch historical data for BTC/USDT as an example (you can adjust symbol and date range)
 symbol = 'BTCUSDT'
 interval = Client.KLINE_INTERVAL_1DAY
-start_str = '1 Jan, 2020'
-end_str = '17 Oct, 2024'
+start_str = '1 May, 2024'
+end_str = '15 Oct, 2024'
 
 # Fetch data
 data = get_historical_data(symbol, interval, start_str, end_str)
@@ -118,60 +143,64 @@ print(data[['SMA','EMA','RSI','MACD','Upper_band','OBV']].tail(50))  # Wyświetl
 # Target: Binary classification if price increased or decreased by 1%
 data['target'] = np.where(data['pct_change'] >= 0.01, 1, 0)
 
-# # Drop rows with NaN values caused by lagging
-# data.dropna(inplace=True)
+# Drop rows with NaN values caused by lagging
+data.dropna(inplace=True)
 
-# # Select features and target variable
-# features = ['SMA', 'EMA', 'RSI', 'MACD', 'MACD_signal', 'MACD_hist', 
-#             'Upper_band', 'Middle_band', 'Lower_band', 'OBV', 
-#             'lagged_return_1', 'lagged_return_2', 'lagged_return_3']
+# Select features and target variable
+features = ['SMA', 'EMA', 'RSI', 'MACD', 'MACD_signal', 'MACD_hist', 
+            'Upper_band', 'Middle_band', 'Lower_band', 'OBV', 
+            'lagged_return_1', 'lagged_return_2', 'lagged_return_3']
 
-# X = data[features]
-# y = data['target']
+X = data[features]
+y = data['target']
 
-# # Split the data into training and testing sets
-# X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+# Split the data into training and testing sets
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-# # Normalize the data (optional, but useful for some models)
-# scaler = StandardScaler()
-# X_train_scaled = scaler.fit_transform(X_train)
-# X_test_scaled = scaler.transform(X_test)
+# Normalize the data (optional, but useful for some models)
+scaler = StandardScaler()
+X_train_scaled = scaler.fit_transform(X_train)
+X_test_scaled = scaler.transform(X_test)
 
-# # Random Forest Classifier
-# param_grid = {
-#     'n_estimators': [50, 100, 200],
-#     'max_depth': [5, 10, 20, None],
-#     'min_samples_split': [2, 5, 10],
-#     'min_samples_leaf': [1, 2, 4]
-# }
-# rf_model = RandomForestClassifier(random_state=42)
-# grid_search = GridSearchCV(estimator=rf_model, param_grid=param_grid, cv=5, n_jobs=-1, verbose=2)
-# grid_search.fit(X_train_scaled, y_train)
+# Random Forest Classifier
+param_grid = {
+    'n_estimators': [50, 100, 200],
+    'max_depth': [5, 10, 20, None],
+    'min_samples_split': [2, 5, 10],
+    'min_samples_leaf': [1, 2, 4]
+}
+rf_model = RandomForestClassifier(random_state=42)
+grid_search = GridSearchCV(estimator=rf_model, param_grid=param_grid, cv=5, n_jobs=-1, verbose=2)
+grid_search.fit(X_train_scaled, y_train)
 
-# # Best Random Forest parameters
-# rf_best_model = grid_search.best_estimator_
-# rf_best_model.fit(X_train_scaled, y_train)
+# Best Random Forest parameters
+rf_best_model = grid_search.best_estimator_
+rf_best_model.fit(X_train_scaled, y_train)
 
-# # Predict and Evaluate
-# y_pred_rf = rf_best_model.predict(X_test_scaled)
-# rf_accuracy = accuracy_score(y_test, y_pred_rf)
-# print(f"Random Forest Accuracy: {rf_accuracy:.2f}")
+# Predict and Evaluate
+y_pred_rf = rf_best_model.predict(X_test_scaled)
+rf_accuracy = accuracy_score(y_test, y_pred_rf)
+print(f"Random Forest Accuracy: {rf_accuracy:.2f}")
 
-# # XGBoost Classifier
-# xgb_model = XGBClassifier(n_estimators=100, learning_rate=0.1, max_depth=5, random_state=42)
-# xgb_model.fit(X_train_scaled, y_train)
+# XGBoost Classifier
+xgb_model = XGBClassifier(n_estimators=100, learning_rate=0.1, max_depth=5, random_state=42)
+xgb_model.fit(X_train_scaled, y_train)
 
-# # Predict and Evaluate
-# y_pred_xgb = xgb_model.predict(X_test_scaled)
-# xgb_accuracy = accuracy_score(y_test, y_pred_xgb)
-# print(f"XGBoost Accuracy: {xgb_accuracy:.2f}")
+# Predict and Evaluate
+y_pred_xgb = xgb_model.predict(X_test_scaled)
+xgb_accuracy = accuracy_score(y_test, y_pred_xgb)
+print(f"XGBoost Accuracy: {xgb_accuracy:.2f}")
 
-# # Cross-Validation
-# cv_scores_rf = cross_val_score(rf_best_model, X_train_scaled, y_train, cv=5)
-# print(f"Cross-Validation Accuracy (Random Forest): {np.mean(cv_scores_rf):.2f}")
+# Cross-Validation
+cv_scores_rf = cross_val_score(rf_best_model, X_train_scaled, y_train, cv=5)
+print(f"Cross-Validation Accuracy (Random Forest): {np.mean(cv_scores_rf):.2f}")
 
-# cv_scores_xgb = cross_val_score(xgb_model, X_train_scaled, y_train, cv=5)
-# print(f"Cross-Validation Accuracy (XGBoost): {np.mean(cv_scores_xgb):.2f}")
+cv_scores_xgb = cross_val_score(xgb_model, X_train_scaled, y_train, cv=5)
+print(f"Cross-Validation Accuracy (XGBoost): {np.mean(cv_scores_xgb):.2f}")
+
+
+print(y_test,y_pred_xgb)
+
 
 
 
