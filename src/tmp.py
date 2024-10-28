@@ -4,7 +4,7 @@ import numpy as np
 from binance.client import Client
 import os
 
-from send_email import send_email
+from model.send_email import send_email
 
 
 # Przykład użycia klasy BinanceTrader

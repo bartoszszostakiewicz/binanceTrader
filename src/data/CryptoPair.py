@@ -6,28 +6,34 @@ from firebase_admin import db
 
 @dataclass
 class Order:
+    symbol: str # Symbol zlecenia
     order_id: str  # ID zlecenia
     order_type: str  # Typ zlecenia, np. "buy" lub "sell"
     amount: float  # Ilość kryptowaluty w zleceniu
     price: float  # Cena za jednostkę kryptowaluty
     timestamp: str  # Czas złożenia zlecenia
+    strategy: str # Strategia z jaka zostalo zlozone zlecenie
 
     def to_dict(self):
         return {
+            "symbol": self.symbol,
             "order_id": self.order_id,
             "order_type": self.order_type,
             "amount": self.amount,
             "price": self.price,
             "timestamp": self.timestamp,
+            "strategy": self.strategy,
         }
 
 @dataclass
 class CryptoPair:
     pair: str  # Para kryptowalut, np. BTC/USD
+    value: float #wartosc crypto w USD
     trading_percentage: float  # Procent portfela, który jest handlowany tą parą
     strategy_allocation: Dict[str, float]  # Podział procentowy na strategie
     profit_target: float  # Procentowy zysk, przy którym sprzedajemy
-    crypto_amount: float  # Ilość posiadanej kryptowaluty do tradingu
+    crypto_amount_free: float  # Ilość posiadanej kryptowaluty do tradingu
+    crypto_amount_locked :float #Ilość posiadanej kryptowaluty która jest aktulanie zablokowana w transakcjach
     active_orders: List[Order] = field(default_factory=list)  # Lista aktywnych zleceń
     completed_orders: List[Order] = field(default_factory=list)  # Lista wykonanych zleceń
     profit: float = 0.0 #Zysk na tradingu danej pary
@@ -35,7 +41,7 @@ class CryptoPair:
     def __post_init__(self):
         # Sprawdzamy, czy suma alokacji strategii wynosi 100% handlowanej części
         total_strategy_percentage = sum(self.strategy_allocation.values())
-        if total_strategy_percentage != 100:
+        if total_strategy_percentage != 1:
             raise ValueError(f"Suma strategii wynosi {total_strategy_percentage}%, a powinna wynosić 100%.")
 
     def to_dict(self):
@@ -44,11 +50,15 @@ class CryptoPair:
             "trading_percentage": self.trading_percentage,
             "strategy_allocation": self.strategy_allocation,
             "profit_target": self.profit_target,
-            "crypto_amount": self.crypto_amount,
-            "profit": [self.profit],
+            "crypto_amount_free": self.crypto_amount_free,
+            "crypto_amount_locked": self.crypto_amount_locked,
+            "profit": self.profit,
             "active_orders": [order.to_dict() for order in self.active_orders],
             "completed_orders": [order.to_dict() for order in self.completed_orders],
         }
+
+ 
+
 
 @dataclass
 class CryptoPairs:
@@ -91,7 +101,6 @@ class CryptoPairs:
           
             ref.child(item_id).set(item_data)  # Uaktualniamy dane w Firebase
            
-
     def load_from_firebase(self, dbUrl: str):
         ref = db.reference("/CryptoTrading/Pairs", url=dbUrl)
         data = ref.get()
