@@ -208,6 +208,14 @@ Thumbs.db
 ehthumbs.db
 Desktop.ini
 
+#Python files
+draft.py
+# Ignore Python bytecode files
+*.pyc
+__pycache__/
+
+
+
 # ============================
 # End of File
 # ============================
