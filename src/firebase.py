@@ -145,36 +145,7 @@ class FirebaseManager:
         ref_profit = self.ref.child(f"{pair_name}/profit")  # Removed extra "Pairs"
         ref_profit.set(profit)
 
-    def handle_orders(self, orders, existing_orders, order_type):
-        updated_orders = existing_orders.copy()
-        
-        for order in orders:
-
-            order_exists = False
-            for existing_order in existing_orders:
-                if existing_order['order_id'] == order['orderId']:
-                    order_exists = True
-                    break
-
-            if not order_exists:
-                
-                if float(order['price']) == 0.0:
-                    order['price'] = float(order['cummulativeQuoteQty']) / float(order['origQty'])
-
-                new_order = Order(
-                    symbol=order['symbol'],
-                    order_id=order['orderId'],
-                    order_type=order['side'],
-                    amount=order['origQty'],
-                    price=order['price'],
-                    timestamp=order['time'],
-                    strategy="",
-                )
-                
-                updated_orders.append(new_order.to_dict())
-                logger.debug(f"Zamówienie {new_order.order_id} dodane do {order_type} zamówień.")
-
-        return updated_orders
+    
 
     def get_value(self, pair: str, amount: float) -> float:
         # Example calculation of value (price could be fetched from an API or cache)
@@ -223,7 +194,9 @@ class FirebaseManager:
                     completed_orders=[],
                     min_notional=min_notional,
                     profit=0,
-                    value=total_value  # Add the value to CryptoPair
+                    value=total_value,
+                    tick_size=self.trader.get_tick_size(symbol=pair_name),
+                    step_size=self.trader.get_step_size(symbol=pair_name)
                 )
 
                 # Add CryptoPair to the list
