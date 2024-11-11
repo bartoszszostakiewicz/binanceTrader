@@ -13,7 +13,8 @@ class Order:
     order_id: str  # ID zlecenia
     order_type: str  # Typ zlecenia, np. "buy" lub "sell"
     amount: float  # Ilość kryptowaluty w zleceniu
-    price: float  # Cena za jednostkę kryptowaluty
+    sell_price: float  # Cena za jednostkę kryptowaluty
+    buy_price: float
     timestamp: str  # Czas złożenia zlecenia
     strategy: str # Strategia z jaka zostalo zlozone zlecenie
 
@@ -41,23 +42,13 @@ class CryptoPair:
     completed_orders: List[Order] = field(default_factory=list)  # Lista wykonanych zleceń
     profit: float = 0.0 #Zysk na tradingu danej pary
     min_notional: float = 0.0
-    ############################################################################
-    sell_order_id: str  = ""    #order id dla ktorego musimy zrobic odkup
-    buy_price: float = 0.0 #cena odkupu
-    sell_price: float = 0.0 #cena sprzedaży
-    buy_quantity: float = 0.0 #ilosc odkupu
-    ############################################################################
+    tick_size: float = 0.0
+    step_size: float = 0.0
     current_state: Dict[str, TradeState] = field(default_factory=lambda: {
         'crazy_girl': TradeState.MONITORING,
         'sensible_guy': TradeState.MONITORING,
         'poor_orphan': TradeState.MONITORING,
     })
-
-    # def __post_init__(self):
-    #     # Sprawdzamy, czy suma alokacji strategii wynosi 100% handlowanej części
-    #     total_strategy_percentage = sum(self.strategy_allocation.values())
-    #     if total_strategy_percentage != 1:
-    #         raise ValueError(f"Suma strategii wynosi {total_strategy_percentage}%, a powinna wynosić 100%.")
 
     def to_dict(self):
         return {
@@ -75,9 +66,16 @@ class CryptoPair:
     def add_order(self, order: Order):
         self.active_orders.append(order)
 
-    def remove_order_by_id(self, order_id: str):
-        order_to_remove = next((order for order in self.active_orders if order.order_id == order_id), None)
-        self.active_orders.remove(order_to_remove)
+
+    def move_order_to_completed(self, order_id: str):
+        
+        order_to_move = next((order for order in self.active_orders if order.order_id == order_id), None)
+        
+        if order_to_move:
+            self.active_orders.remove(order_to_move)
+            self.completed_orders.append(order_to_move)
+        
+        
  
 @dataclass
 class TradeStrategy:

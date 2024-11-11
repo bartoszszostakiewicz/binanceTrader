@@ -1,10 +1,6 @@
 import asyncio
-import time
 from binance_api import BinanceTrader
 from firebase import FirebaseManager
-import json
-from data_classes import CryptoPair
-from collections import defaultdict
 from constants import *
 from logger import logger
     
@@ -15,15 +11,17 @@ async def main():
     firebaseManager = FirebaseManager(trader=trader)
     
     logger.debug(f"Public Ip = {trader.get_public_ip()}")
-
     
     cryptoPairs = firebaseManager.fetch_pairs()
     
+    
+    
     # for cryptoPair in cryptoPairs.pairs:
-    #     symbol = cryptoPair.pair  # Replace with your desired symbol
+    #     symbol = cryptoPair.pair  
+        
+    #     summary = trader.analyze_orders(cryptoPair.pair)
         
     #     print(f"pair = {cryptoPair.pair}")
-    #     print(f"pair = {cryptoPair.strategy_allocation[CRAZY_GIRL]}")
 
     #     print(f"Summary for {symbol}:")
     #     print(f"  Buy Orders Count         : {summary['buy_count']}")
@@ -36,38 +34,24 @@ async def main():
     #     print(f"  Value of missing quantit : {summary['quantity_missing'] * trader.get_price(cryptoPair.pair) } {cryptoPair.pair}")
         
 
-    #debug mode pobierz z bazy dany i ustaw tutaj zeby za kazdym razem nie wysylac zapytania do bazy danych! np zmienan globalna lub cos innego
-
-    ###################################################################################################################################################
 
     while True:
         
         i = 0
         powerStatus = firebaseManager.get_power_status()
-        
-        #zeruje prawdopodpnie staty do poprawy
         cryptoPairs = firebaseManager.fetch_pairs()
+        
         
         while powerStatus:
             
-            # cryptoValue = firebaseManager.get_crypto_value()
-
             # Tasks for handling strategies for each crypto pair
             strategy_tasks = [
                 asyncio.create_task(trader.handle_strategies(cryptoPair=crypto_pair, strategies=cryptoPairs.strategies))
                 for crypto_pair in cryptoPairs.pairs
-                if (float(crypto_pair.crypto_amount_free) * float(crypto_pair.trading_percentage)) > 0 and crypto_pair.pair == "BTCUSDC"
+                if (float(crypto_pair.crypto_amount_free) * float(crypto_pair.trading_percentage)) > 0 #and crypto_pair.pair == "ETHUSDC"
             ]
             
-            
-            # # Tasks for monitoring buy orders for each crypto pair
-            # monitor_tasks = [
-            #     asyncio.create_task(trader.monitor_buy_orders(cryptoPair=crypto_pair))
-            #     for crypto_pair in cryptoPairs.pairs
-            #     if any(order.order_type == "BUY"  for order in crypto_pair.active_orders)
-            # ]
-            
-          
+                      
             
             # Combine both strategy and monitoring tasks
             tasks = strategy_tasks
@@ -87,11 +71,7 @@ async def main():
             
             
             i += 1
-            logger.debug(f'iteracja {i}')
-
-
-        #anuluj wszystkie zlecenia sprzedazy bo nie bedziesz w stanie zrobic zlecen kupna jak power off albo jakos inaczej
-
+            logger.debug(f'Iteration {i}')
 
 
 
