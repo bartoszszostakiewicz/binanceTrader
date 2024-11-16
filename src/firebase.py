@@ -6,40 +6,52 @@ from binance_api import BinanceTrader
 from data_classes import Order, CryptoPairs, CryptoPair, Heartbeat, TradeStrategy
 from constants import *
 from logger import logger
+from comm_manager import get_private_ip, get_public_ip
 
 
  
 
 
 class FirebaseManager:
+    
+    _instance = None
+    
+    def __new__(cls, *args, **kwargs):
+        if cls._instance is None:
+            logger.debug("Creating new instance of FirebaseManager")
+            cls._instance = super().__new__(cls)
+        return cls._instance
 
-    def __init__(self, trader: BinanceTrader):
-        
-        self.trader = trader
-        self.dbUrl = 'https://bintrader-ffeeb-default-rtdb.firebaseio.com/'
+    def __init__(self, trader=None):
+        if not hasattr(self, 'initialized'):
+            logger.debug("Initializing FirebaseManager")
+            self.initialized = True
+            self.dbUrl = 'https://bintrader-ffeeb-default-rtdb.firebaseio.com/'
 
-        try:
-            # Ustawienie ścieżki do pliku z poświadczeniami Firebase
-            self.cred = credentials.Certificate("C:/GitWorkspace/binanceTrader/bintrader-ffeeb-firebase-adminsdk-6ytwx-e6e7bfbea8.json")
+            try:
+                self.cred = credentials.Certificate("../bintrader-ffeeb-firebase-adminsdk-6ytwx-e6e7bfbea8.json")
+                
+
+                firebase_admin.initialize_app(self.cred)
+                logger.debug("Firebase initialized successfully.")
+                
+                logger.debug("Private and public ips was set successfully")
+                self.save_ips_to_firebase()
+                
+                
+                self.ref = db.reference("/CryptoTrading", url=self.dbUrl)
+                logger.debug("Firebase database reference set successfully.")
+                
+                
             
-            # Inicjalizacja Firebase
-            firebase_admin.initialize_app(self.cred)
-            logger.debug("Firebase initialized successfully.")
-
-            # Ustawienie referencji do bazy danych
-            self.ref = db.reference("/CryptoTrading", url=self.dbUrl)
-            logger.debug("Firebase database reference set successfully.")
-        
-        except FileNotFoundError as e:
-            # Logowanie błędu, jeśli plik poświadczeń nie zostanie znaleziony
-            logger.error("Firebase credentials file not found.")
-            raise ValueError(f"Failed to initialize Firebase: {str(e)}")
-        
-        
-        except Exception as e:
-            # Logowanie innych błędów
-            logger.exception("An unexpected error occurred during Firebase initialization.")
-            raise ValueError(f"Failed to initialize Firebase: {str(e)}")
+            except FileNotFoundError as e:
+                logger.error("Firebase credentials file not found.")
+                raise ValueError(f"Failed to initialize Firebase: {str(e)}")
+            
+            
+            except Exception as e:
+                logger.exception("An unexpected error occurred during Firebase initialization.")
+                raise ValueError(f"Failed to initialize Firebase: {str(e)}")
     
     def login_to_firebase(self, email, password):
         api_key = 'AIzaSyBECJFlN8QCFGhExZ7VxSACo6iSWKp8FvI'
@@ -123,16 +135,6 @@ class FirebaseManager:
         ref_min_notional = self.ref.child(f"{pair_name}/min_notional")  # Removed extra "Pairs"
         ref_min_notional.set(min_notional)
 
-    def update_active_orders(self, pair_name: str, active_orders: list):
-        """Updates the active orders of a cryptocurrency pair in Firebase."""
-        ref_active_orders = self.ref.child(f"{pair_name}/active_orders")  # Removed extra "Pairs"
-        ref_active_orders.set(active_orders)
-
-    def update_completed_orders(self, pair_name: str, completed_orders: list):
-        """Updates the completed orders of a cryptocurrency pair in Firebase."""
-        ref_completed_orders = self.ref.child(f"{pair_name}/completed_orders")  # Removed extra "Pairs"
-        ref_completed_orders.set(completed_orders)
-
     def update_crypto_amount(self, pair_name: str, crypto_amount_locked: float, crypto_amount_free: float):
         """Updates the free and locked cryptocurrency amounts of a pair in Firebase."""
         ref_crypto_amount_locked = self.ref.child(f"{pair_name}/crypto_amount_locked")  # Removed extra "Pairs"
@@ -145,16 +147,14 @@ class FirebaseManager:
         ref_profit = self.ref.child(f"{pair_name}/profit")  # Removed extra "Pairs"
         ref_profit.set(profit)
 
-    
-
     def get_value(self, pair: str, amount: float) -> float:
         # Example calculation of value (price could be fetched from an API or cache)
-        price = self.trader.get_price(pair)  # Assuming you have access to a price method
+        price = BinanceTrader().get_price(pair)  # Assuming you have access to a price method
         return float(amount) * price
 
     def fetch_pairs(self) -> CryptoPairs: 
         data = self.get_pairs()
-        wallet = self.trader.get_wallet_balances()
+        wallet = BinanceTrader().get_wallet_balances()
         profit = 0
         crypto_pairs = CryptoPairs()  # Create a CryptoPairs object
 
@@ -173,7 +173,7 @@ class FirebaseManager:
                 total_value = free_value + locked_value
 
                 # Minimum trading value
-                min_notional = self.trader.get_min_notional(pair_name)
+                min_notional = BinanceTrader().get_min_notional(pair_name)
 
                 # Update Firebase data
                 self.update_crypto_amount(pair_name, pair_data['crypto_amount_locked'], pair_data['crypto_amount_free'])
@@ -190,13 +190,12 @@ class FirebaseManager:
                     profit_target=pair_data.get('profit_target', 0),
                     crypto_amount_free=pair_data['crypto_amount_free'],
                     crypto_amount_locked=pair_data['crypto_amount_locked'],
-                    active_orders=[],
-                    completed_orders=[],
+                    orders=[],
                     min_notional=min_notional,
                     profit=0,
                     value=total_value,
-                    tick_size=self.trader.get_tick_size(symbol=pair_name),
-                    step_size=self.trader.get_step_size(symbol=pair_name)
+                    tick_size=BinanceTrader().get_tick_size(symbol=pair_name),
+                    step_size=BinanceTrader().get_step_size(symbol=pair_name)
                 )
 
                 # Add CryptoPair to the list
@@ -208,7 +207,7 @@ class FirebaseManager:
 
         # Update total profit and overall value in Firebase
         self.update_profit(profit=0)
-        self.update_value(self.trader.get_value_of_stable_coins_and_crypto())
+        self.update_value(BinanceTrader().get_value_of_stable_coins_and_crypto())
 
         # Return the list of cryptocurrency pairs
         return crypto_pairs
@@ -258,3 +257,49 @@ class FirebaseManager:
 
         return strategies
     
+    def add_order_to_firebase(self, order: Order):
+        """
+        Adds an order to Firebase Realtime Database if it doesn't already exist, 
+        or updates it if the status or other attributes have changed.
+
+        Parameters:
+            order (Order): The order object to be added or updated.
+        """
+        try:
+            self.ref = db.reference(f"/CryptoTrading/Orders/{order.order_id}", url=self.dbUrl)
+
+            existing_order = self.ref.get()
+
+            if existing_order is not None:
+                if existing_order['status'] != order.status:
+                    self.ref.update(order.to_dict())
+                    logger.info(f"Order with ID {order.order_id} updated in Firebase (status changed from "
+                                f"{existing_order['status']} to {order.status}).")
+                else:
+                    logger.debug(f"Order with ID {order.order_id} already exists in Firebase with the same status.")
+            else:
+                self.ref.set(order.to_dict())
+                logger.info(f"Order with ID {order.order_id} added successfully to Firebase.")
+        except Exception as e:
+            logger.exception(f"Failed to add or update order in Firebase: {e}")
+
+    def save_ips_to_firebase(self):
+        """
+        Adds public and private IP to Firebase Realtime Database.
+        Updates the values if they already exist.
+        """
+        try:
+            # Firebase references for public and private IPs
+            public_ip_ref = db.reference(f"/CryptoTrading/Config/IPs/Public", url=self.dbUrl)
+            private_ip_ref = db.reference(f"/CryptoTrading/Config/IPs/Private", url=self.dbUrl)
+
+            # Get and save IPs
+            public_ip = get_public_ip()
+            private_ip = get_private_ip()
+
+            public_ip_ref.set(public_ip)
+            private_ip_ref.set(private_ip)
+
+            logger.info(f"Public IP ({public_ip}) and Private IP ({private_ip}) saved successfully to Firebase.")
+        except Exception as e:
+            logger.exception(f"Failed to save or update IPs in Firebase: {e}")
