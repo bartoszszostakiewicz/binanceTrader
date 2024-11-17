@@ -1,10 +1,11 @@
 from dataclasses import dataclass, field
+import time
 from typing import List, Dict
 from firebase_admin import db
 from datetime import datetime
 import psutil
-
-from constants import TradeState
+from logger import logger
+from constants import *
 
 
 @dataclass
@@ -17,6 +18,7 @@ class Order:
     buy_price: float
     timestamp: str  # Czas złożenia zlecenia
     strategy: str # Strategia z jaka zostalo zlozone zlecenie
+    status: str
 
     def to_dict(self):
         return {
@@ -24,9 +26,11 @@ class Order:
             "order_id": self.order_id,
             "order_type": self.order_type,
             "amount": self.amount,
-            "price": self.price,
+            "sell_price": self.sell_price,
+            "buy_price": self.buy_price,
             "timestamp": self.timestamp,
             "strategy": self.strategy,
+            "status": self.status,
         }
 
 @dataclass
@@ -38,8 +42,7 @@ class CryptoPair:
     profit_target: float  # Procentowy zysk, przy którym sprzedajemy
     crypto_amount_free: float  # Ilość posiadanej kryptowaluty do tradingu
     crypto_amount_locked :float #Ilość posiadanej kryptowaluty która jest aktulanie zablokowana w transakcjach
-    active_orders: List[Order] = field(default_factory=list)  # Lista aktywnych zleceń
-    completed_orders: List[Order] = field(default_factory=list)  # Lista wykonanych zleceń
+    orders: List[Order] = field(default_factory=list)  # Lista aktywnych zleceń
     profit: float = 0.0 #Zysk na tradingu danej pary
     min_notional: float = 0.0
     tick_size: float = 0.0
@@ -59,21 +62,36 @@ class CryptoPair:
             "crypto_amount_free": self.crypto_amount_free,
             "crypto_amount_locked": self.crypto_amount_locked,
             "profit": self.profit,
-            "active_orders": [order.to_dict() for order in self.active_orders],
-            "completed_orders": [order.to_dict() for order in self.completed_orders],
+            "orders": [order.to_dict() for order in self.orders],
         }
 
     def add_order(self, order: Order):
-        self.active_orders.append(order)
+        self.orders.append(order)
+
+        if len(self.orders) > MAX_ORDERS_HISTORY_IN_CRYPTO_PAIRS:
+            self.orders.pop(0)
+
+        return order
+    
+    def set_status(self, order_id: str, status: str):
+        """
+        Ustawia nowy status dla zlecenia o podanym order_id w obiekcie CryptoPair.
+
+        Parameters:
+            order_id (str): ID zlecenia, którego status ma zostać zmieniony.
+            status (str): Nowy status, który zostanie ustawiony.
+        """
+        for order in self.orders:
+            if order.order_id == order_id:
+                order.status = status
+                order.timestamp = int(time.time() * 1000)
+                logger.debug(f"Order with ID {order_id} status changed to {status}.")
+                return  order
+        logger.warning(f"No order found with ID {order_id}.")
 
 
-    def move_order_to_completed(self, order_id: str):
+    
         
-        order_to_move = next((order for order in self.active_orders if order.order_id == order_id), None)
-        
-        if order_to_move:
-            self.active_orders.remove(order_to_move)
-            self.completed_orders.append(order_to_move)
         
         
  
