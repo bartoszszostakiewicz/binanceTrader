@@ -127,7 +127,8 @@ class FirebaseManager:
 
     def update_value_for_pair(self, pair_name: str, value: float):
         """Updates the value of a cryptocurrency pair in Firebase."""
-        ref_value = self.ref.child(f"{pair_name}/value")  # Removed extra "Pairs"
+        #?????????????????????????????
+        ref_value = self.ref.child(f"{pair_name}/value")
         ref_value.set(value)
 
     def update_min_notional(self, pair_name: str, min_notional: float):
@@ -170,6 +171,10 @@ class FirebaseManager:
                 # Calculate the value of the asset (free and locked cryptocurrency)
                 free_value = self.get_value(pair_name, pair_data['crypto_amount_free'])
                 locked_value = self.get_value(pair_name, pair_data['crypto_amount_locked'])
+                
+                logger.debug(f"Free   value for {pair_name}: {free_value}")
+                logger.debug(f"Locked value for {pair_name}: {locked_value}")
+                
                 total_value = free_value + locked_value
 
                 # Minimum trading value
@@ -303,3 +308,53 @@ class FirebaseManager:
             logger.info(f"Public IP ({public_ip}) and Private IP ({private_ip}) saved successfully to Firebase.")
         except Exception as e:
             logger.exception(f"Failed to save or update IPs in Firebase: {e}")
+    
+    def create_development_path(self):
+        source_path = '/CryptoTrading'
+        destination_path = '/CryptoTradingDevelopment'
+
+        ref = db.reference(source_path,url=self.dbUrl)
+        data = ref.get()
+
+        if data:
+            new_ref = db.reference(destination_path, url=self.dbUrl)
+            new_ref.set(data)
+            logger.debug(f"Data copied successfully to {destination_path}")
+        else:
+            logger.debug("Source path is empty or doesn't exist.")
+
+    def get_wallet_balances(self, force_refresh: bool = True):
+        # Sprawdź, czy cache istnieje oraz czy minął czas jego ważności (np. 5 minut)
+        if force_refresh or not hasattr(self, '_wallet_cache'):
+            self._wallet_cache = BinanceTrader().get_wallet_balances()
+        return self._wallet_cache
+
+    def get_crypto_amounts(self, pair_name: str) -> dict:
+        """
+        Fetches the `crypto_amount_free` and `crypto_amount_locked` for a given cryptocurrency pair 
+        using cached wallet balances.
+
+        Args:
+            pair_name (str): The name of the cryptocurrency pair (e.g., 'BTCUSDT').
+
+        Returns:
+            dict: A dictionary containing `crypto_amount_free` and `crypto_amount_locked`.
+        """
+        # Pobranie portfela z cache
+        wallet = self.get_wallet_balances()
+        
+        # Wyciągnięcie symbolu kryptowaluty
+        crypto_symbol = pair_name[:-4]  # Usunięcie ostatnich 4 znaków (np. 'BTCUSDT' -> 'BTC')
+        
+        if crypto_symbol in wallet:
+            balance = wallet[crypto_symbol]
+            return {
+                'crypto_amount_free': balance['free'],
+                'crypto_amount_locked': balance['locked']
+            }
+        else:
+            # Jeśli waluty nie ma w portfelu, zwróć wartości zerowe
+            return {
+                'crypto_amount_free': 0,
+                'crypto_amount_locked': 0
+            }

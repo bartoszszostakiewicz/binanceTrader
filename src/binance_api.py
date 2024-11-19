@@ -520,6 +520,9 @@ class BinanceTrader:
         strategy_list = [strategies[POOR_ORPHAN], strategies[CRAZY_GIRL], strategies[SENSIBLE_GUY]]
        
         tasks = []
+        
+    
+        
   
         for strategy_func, strategy in zip(strategy_func_list, strategy_list):
 
@@ -542,6 +545,7 @@ class BinanceTrader:
             
             ######################################################################
             #czy mamy pewnosc ze jest to ostanie zmaowinie?
+            
             
             last_sell_order: Optional[Order] = max(
                 (
@@ -586,10 +590,15 @@ class BinanceTrader:
                 logger.debug(f"Min_notional = {cryptoPair.min_notional}, current_price = {self.get_price(cryptoPair.pair)}")
                 logger.debug(f"Quantity_for_trading = {quantity_for_trading}.")
                 logger.debug(f"Order price = {quantity_for_trading*self.get_price(cryptoPair.pair)}.")
+                
+   
             #############################################################################################################
                 
             sell_quantity = quantity_for_trading
             price_order = float(sell_quantity) * float(buy_price)
+            
+            logger.info(f"Crypto free amount value: {cryptoPair.crypto_amount_free} USD")
+            logger.info(f"Crypto locked amount value: {cryptoPair.crypto_amount_locked} USD")
             
             # Check if the order value is less than min_notional
             if price_order < cryptoPair.min_notional:
@@ -597,6 +606,7 @@ class BinanceTrader:
                 logger.debug(f"Required min_notional for {cryptoPair.pair}: is {cryptoPair.min_notional}, but calculated order value is {price_order}.")
                 
             # Check if the order value exceeds available balance
+            
             elif price_order >= cryptoPair.value:
                 logger.info(f"Cannot place sell order for {cryptoPair.pair}: order value ({price_order}) exceeds available balance ({cryptoPair.value}).")
                 logger.debug(f"Calculated order value for {cryptoPair.pair}: ({price_order}) is higher than available balance ({cryptoPair.value}).")
