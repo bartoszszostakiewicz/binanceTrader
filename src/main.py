@@ -25,19 +25,34 @@ async def main():
         
         i = 0
         powerStatus = firebaseManager.get_power_status()
+        
+        #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+        #to jest winny ze nie mamy aktualnej ilosci forsy na zamowienia|
+        #to powinno byc w petli wewnetrznej ale nie zbyt czesto
+        #jak to wrzuce w petle zewnetrzna to zeruje mi .... rzeczy ktorych nie powinno
+        #
         cryptoPairs = firebaseManager.fetch_pairs()
         
         
         while powerStatus:
             
-            # Tasks for handling strategies for each crypto pair
-            strategy_tasks = [
-                asyncio.create_task(trader.handle_strategies(cryptoPair=crypto_pair, strategies=cryptoPairs.strategies))
-                for crypto_pair in cryptoPairs.pairs
-                if (float(crypto_pair.crypto_amount_free) * float(crypto_pair.trading_percentage)) > 0 #and crypto_pair.pair == "WBETHUSDT"
-            ]
+            strategy_tasks = []
             
-            
+            for crypto_pair in cryptoPairs.pairs:
+                # Asynchroniczne wywołanie `get_crypto_amounts`
+                crypto_amounts = firebaseManager.get_crypto_amounts(crypto_pair.pair)
+                crypto_pair.crypto_amount_free = crypto_amounts['crypto_amount_free']
+                crypto_pair.crypto_amount_locked = crypto_amounts['crypto_amount_locked']
+                
+                # Sprawdzenie warunku `if`
+                if (float(crypto_pair.crypto_amount_free) * float(crypto_pair.trading_percentage)) > 0 and crypto_pair.pair == "WBETHUSDT":
+                    # Dodanie zadania do listy
+                    strategy_tasks.append(
+                        asyncio.create_task(
+                            trader.handle_strategies(cryptoPair=crypto_pair, strategies=cryptoPairs.strategies)
+                        )
+                    )
+                        
             # Combine both strategy and monitoring tasks
             tasks = strategy_tasks
 
