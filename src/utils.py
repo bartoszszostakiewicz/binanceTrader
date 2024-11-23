@@ -1,6 +1,7 @@
 import socket
 import requests
 from logger import logger
+from git import Repo
 
 def get_private_ip():
     """
@@ -19,7 +20,7 @@ def get_private_ip():
     except Exception as e:
         logger.exception(f"Failed to retrieve private IP address: {e}")
         return None
-    
+
 def get_public_ip():
     """
     Retrieves the public IP address of the current network.
@@ -36,7 +37,7 @@ def get_public_ip():
         # Handle any request-related errors and return None if the IP retrieval fails
         logger.exception(f"Failed to retrieve public IP address: {e}")
         return None
-    
+
 def get_ngrok_tunnel():
     """
     Fetches the current ngrok TCP tunnel address.
@@ -63,3 +64,13 @@ def get_ngrok_tunnel():
     except requests.RequestException as e:
         print(f"Error fetching ngrok tunnel: {e}")
         return None
+
+def get_tag():
+    repo = Repo()
+
+    tag = None
+    for t in repo.tags:
+        if t.commit == repo.head.commit:
+            tag = t.name
+            break
+    return tag

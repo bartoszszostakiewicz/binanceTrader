@@ -3,3 +3,4 @@ python-binance
 psutil
 colorama
 colorlog
+gitpython

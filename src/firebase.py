@@ -6,16 +6,17 @@ from binance_api import BinanceTrader
 from data_classes import Order, CryptoPairs, CryptoPair, Heartbeat, TradeStrategy
 from constants import *
 from logger import logger
-from comm_manager import get_private_ip, get_public_ip, get_ngrok_tunnel
+from utils import get_private_ip, get_public_ip, get_ngrok_tunnel
+from os import getenv
 
 
  
 
 
 class FirebaseManager:
-    
+
     _instance = None
-    
+
     def __new__(cls, *args, **kwargs):
         if cls._instance is None:
             logger.debug("Creating new instance of FirebaseManager")
@@ -29,42 +30,46 @@ class FirebaseManager:
             self.dbUrl = 'https://bintrader-ffeeb-default-rtdb.firebaseio.com/'
 
             try:
-                self.cred = credentials.Certificate("../bintrader-ffeeb-firebase-adminsdk-6ytwx-e6e7bfbea8.json")
-                
+                firebase_key_path = getenv(FIREBASE_KEY_PATH)
+
+                if not firebase_key_path:
+                    raise ValueError("Firebase key path are missing. Please check that they are set in environment variables.")
+
+                self.cred = credentials.Certificate(firebase_key_path)
+
 
                 firebase_admin.initialize_app(self.cred)
                 logger.debug("Firebase initialized successfully.")
-                
+
                 logger.debug("Private and public ips was set successfully")
                 self.save_ips_to_firebase()
-                
-                
+
+
                 self.ref = db.reference("/CryptoTrading", url=self.dbUrl)
                 logger.debug("Firebase database reference set successfully.")
-                
-                
-            
+
+
+
             except FileNotFoundError as e:
                 logger.error("Firebase credentials file not found.")
                 raise ValueError(f"Failed to initialize Firebase: {str(e)}")
-            
-            
+
             except Exception as e:
                 logger.exception("An unexpected error occurred during Firebase initialization.")
                 raise ValueError(f"Failed to initialize Firebase: {str(e)}")
-    
+
     def login_to_firebase(self, email, password):
         api_key = 'AIzaSyBECJFlN8QCFGhExZ7VxSACo6iSWKp8FvI'
         url = f'https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key={api_key}'
-        
+
         payload = {
             'email': email,
             'password': password,
             'returnSecureToken': True
         }
-        
+
         response = requests.post(url, json=payload)
-        
+
         if response.status_code == 200:
             data = response.json()
             logger.debug('Zalogowano pomyślnie!')
@@ -75,27 +80,27 @@ class FirebaseManager:
     def get_power_status(self):
         self.ref = db.reference("/CryptoTrading/__Power__", url=self.dbUrl)
         return self.ref.get()
-    
+
     def set_power_status(self,status: bool):
         self.ref = db.reference("/CryptoTrading/__Power__", url=self.dbUrl)
         self.ref.set(status)
-        
+
     def get_debug_mode(self):
         self.ref = db.reference("/CryptoTrading/Config/Debug", url=self.dbUrl)
         return self.ref.get()
-    
+
     def set_debug_mode(self,status: bool):
         self.ref = db.reference("/CryptoTrading/Config/Debug", url=self.dbUrl)
         self.ref.set(status)
-        
+
     def get_monitor_orders(self):
         self.ref = db.reference("/CryptoTrading/Config/OrdersMonitoring", url=self.dbUrl)
         return self.ref.get()
-    
+
     def set_monitor_orders(self,status: bool):
         self.ref = db.reference("/CryptoTrading/Config/OrdersMonitoring", url=self.dbUrl)
         self.ref.set(status)
-    
+
     def update_profit(self, profit: float):
         ref_profit = db.reference("/CryptoTrading/Wallet/Profit", url=self.dbUrl)
         ref_profit.set(profit)
@@ -114,13 +119,13 @@ class FirebaseManager:
     def get_crypto_value(self):
         """
         Pobiera wartość kryptowalut z bazy danych Firebase.
-        
+ 
         :return: Wartość kryptowalut przechowywana w Firebase
         """
         ref_crypto_value = db.reference("/CryptoTrading/CryptoValue", url=self.dbUrl)
         crypto_value = ref_crypto_value.get()
         return crypto_value
-    
+
     def get_pairs(self):
         self.ref = db.reference("/CryptoTrading/Pairs", url=self.dbUrl)
         return self.ref.get()
@@ -161,30 +166,30 @@ class FirebaseManager:
 
         # Iterate through the data fetched from Firebase
         for pair_name, pair_data in data.items():
-                    
+
             # Update data fetched from Binance to Firebase
             if pair_name[:-4] in wallet:
                 balance = wallet[pair_name[:-4]]
-                pair_data['crypto_amount_free'] = balance['free']
-                pair_data['crypto_amount_locked'] = balance['locked']
+                pair_data[CRYPTO_AMOUNT_FREE] = balance[FREE]
+                pair_data[CRYPTO_AMOUNT_LOCKED] = balance[LOCKED]
 
                 # Calculate the value of the asset (free and locked cryptocurrency)
-                free_value = self.get_value(pair_name, pair_data['crypto_amount_free'])
-                locked_value = self.get_value(pair_name, pair_data['crypto_amount_locked'])
-                
+                free_value = self.get_value(pair_name, pair_data[CRYPTO_AMOUNT_FREE])
+                locked_value = self.get_value(pair_name, pair_data[CRYPTO_AMOUNT_LOCKED])
+
                 logger.debug(f"Free   value for {pair_name}: {free_value}")
                 logger.debug(f"Locked value for {pair_name}: {locked_value}")
-                
+
                 total_value = free_value + locked_value
 
                 # Minimum trading value
                 min_notional = BinanceTrader().get_min_notional(pair_name)
 
                 # Update Firebase data
-                self.update_crypto_amount(pair_name, pair_data['crypto_amount_locked'], pair_data['crypto_amount_free'])
+                self.update_crypto_amount(pair_name, pair_data[CRYPTO_AMOUNT_LOCKED], pair_data[CRYPTO_AMOUNT_FREE])
                 self.update_min_notional(pair_name, min_notional)
                 self.update_value_for_pair(pair_name, total_value)
-                
+
 
 
                 # Create a CryptoPair object
@@ -193,8 +198,8 @@ class FirebaseManager:
                     trading_percentage=pair_data.get('trading_percentage', 0),
                     strategy_allocation=pair_data.get('strategy_allocation', {}),
                     profit_target=pair_data.get('profit_target', 0),
-                    crypto_amount_free=pair_data['crypto_amount_free'],
-                    crypto_amount_locked=pair_data['crypto_amount_locked'],
+                    crypto_amount_free=pair_data[CRYPTO_AMOUNT_FREE],
+                    crypto_amount_locked=pair_data[CRYPTO_AMOUNT_LOCKED],
                     orders=[],
                     min_notional=min_notional,
                     profit=0,
@@ -205,10 +210,10 @@ class FirebaseManager:
 
                 # Add CryptoPair to the list
                 crypto_pairs.pairs.append(crypto_pair)
-        
+
         for strategy in self.get_strategies():
             crypto_pairs.add_strategy(strategy)
-        
+
 
         # Update total profit and overall value in Firebase
         self.update_profit(profit=0)
@@ -219,11 +224,11 @@ class FirebaseManager:
 
     def send_heartbeat(self ,status="OK", version="1.0.0", custom_message="All systems operational"):
         heartbeat = Heartbeat.create_heartbeat(status=status, version=version, custom_message=custom_message)
-        
+
         # Konwersja obiektu Heartbeat do słownika
         heartbeat_data = {
             "timestamp": heartbeat.timestamp.isoformat().replace("T"," | "),
-            "status": heartbeat.status,
+            STATUS: heartbeat.status,
             "version": heartbeat.version,
             "cpu_load": heartbeat.cpu_load,
             "memory_usage": heartbeat.memory_usage,
@@ -261,7 +266,7 @@ class FirebaseManager:
             logger.error("No strategies found in the database.")
 
         return strategies
-    
+
     def add_order_to_firebase(self, order: Order):
         """
         Adds an order to Firebase Realtime Database if it doesn't already exist, 
@@ -276,10 +281,10 @@ class FirebaseManager:
             existing_order = self.ref.get()
 
             if existing_order is not None:
-                if existing_order['status'] != order.status:
+                if existing_order[STATUS] != order.status:
                     self.ref.update(order.to_dict())
                     logger.info(f"Order with ID {order.order_id} updated in Firebase (status changed from "
-                                f"{existing_order['status']} to {order.status}).")
+                                f"{existing_order[STATUS]} to {order.status}).")
                 else:
                     logger.debug(f"Order with ID {order.order_id} already exists in Firebase with the same status.")
             else:
@@ -308,10 +313,12 @@ class FirebaseManager:
             private_ip_ref.set(private_ip)
             ngrok_tunnel_ref.set(ngrok_tunnel)
 
-            logger.info(f"Public IP ({public_ip}), Private IP ({private_ip}) and TCP Tunnel{ngrok_tunnel} saved successfully to Firebase.")
+            logger.info(f"Public IP ({public_ip})")
+            logger.info(f"Private IP ({private_ip})")
+            logger.info(f"TCP Tunnel{ngrok_tunnel} saved successfully to Firebase.")
         except Exception as e:
             logger.exception(f"Failed to save or update IPs in Firebase: {e}")
-    
+
     def create_development_path(self):
         source_path = '/CryptoTrading'
         destination_path = '/CryptoTradingDevelopment'
@@ -343,21 +350,20 @@ class FirebaseManager:
         Returns:
             dict: A dictionary containing `crypto_amount_free` and `crypto_amount_locked`.
         """
-        # Pobranie portfela z cache
+
         wallet = self.get_wallet_balances()
-        
-        # Wyciągnięcie symbolu kryptowaluty
-        crypto_symbol = pair_name[:-4]  # Usunięcie ostatnich 4 znaków (np. 'BTCUSDT' -> 'BTC')
-        
+
+        crypto_symbol = pair_name[:-4]  
+
         if crypto_symbol in wallet:
             balance = wallet[crypto_symbol]
             return {
-                'crypto_amount_free': balance['free'],
-                'crypto_amount_locked': balance['locked']
+                CRYPTO_AMOUNT_FREE: balance[FREE],
+                CRYPTO_AMOUNT_LOCKED: balance[LOCKED]
             }
         else:
             # Jeśli waluty nie ma w portfelu, zwróć wartości zerowe
             return {
-                'crypto_amount_free': 0,
-                'crypto_amount_locked': 0
+                CRYPTO_AMOUNT_FREE: 0,
+                CRYPTO_AMOUNT_LOCKED: 0
             }

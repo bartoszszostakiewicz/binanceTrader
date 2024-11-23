@@ -14,35 +14,35 @@ class BinanceTrader:
 
     _instance = None
     _initialized = False
-    
+
     def __new__(cls, *args, **kwargs):
         if not cls._instance:
             cls._instance = super(BinanceTrader, cls).__new__(cls, *args, **kwargs)
         return cls._instance
-    
+
     def __init__(self) -> None:
-        
+
         if self._initialized:
             return
         self._initialized = True 
-        
+
         try:
             # Attempt to retrieve API keys from environment variables
-            api_key = os.getenv('BINANCE_API_KEY')
-            secret_key = os.getenv('BINANCE_SECRET_KEY')
-            
+            api_key = os.getenv(BINANCE_API_KEY)
+            secret_key = os.getenv(BINANCE_SECRET_KEY)
+
             if not api_key or not secret_key:
                 raise ValueError("Binance API keys are missing. Please check that they are set in environment variables.")
-            
+
             # Initialize the Binance client
             self.client = Client(api_key, secret_key)
             self.orders_id = set()
-            
+
             logger.debug(f"Binance Trader successfully intializated!")
-            
+
             # Initialize colorama for automatic console color reset
             init(autoreset=True)
-        
+
         except ValueError as ve:
             logger.error(f"Initialization error: {ve}")
         except Exception as e:
@@ -60,28 +60,28 @@ class BinanceTrader:
     def get_tick_size(self, symbol):
         """
         Retrieves the tick size (price step) for a given trading pair symbol.
-        
+
         Args:
             symbol (str): The trading pair symbol, e.g., 'BTCUSDT'.
-        
+
         Returns:
             float: The tick size for the specified symbol.
-        
+
         Raises:
             ValueError: If the tick size could not be retrieved.
         """
         try:
             # Fetch symbol information to retrieve the tick size
             symbol_info = self.client.get_symbol_info(symbol)
-            for filter in symbol_info['filters']:
-                if filter['filterType'] == 'PRICE_FILTER':
+            for filter in symbol_info[FILTERS]:
+                if filter[FILTER_TYPE] == 'PRICE_FILTER':
                     logger.debug(f"Tick size for {symbol} = {filter['tickSize']}")
                     return float(filter['tickSize'])
         except Exception as e:
             # Raise an error with details if the tick size retrieval fails
             logger.exception(f"Failed to retrieve tick size for {symbol}")
             raise ValueError(f"Failed to retrieve tick size for {symbol}: {str(e)}")
-     
+
     def get_order_status(self, trading_pair, order_id):
         """
         Checking order status
@@ -96,10 +96,10 @@ class BinanceTrader:
     async def get_open_orders(self, trading_pair):
         """
         Retrieves open orders for a given cryptocurrency trading pair.
-        
+
         Args:
             trading_pair (str): The trading pair symbol, e.g., 'BTCUSDT'.
-        
+
         Returns:
             list: A list of open orders for the specified trading pair.
         """
@@ -144,19 +144,19 @@ class BinanceTrader:
         """
         try:
             account_info = self.client.get_account()
-            balances = account_info['balances']
-            
+            balances = account_info[BALANCES]
+
             wallet_balances = {}
             for balance in balances:
-                asset = balance['asset']
-                free_amount = balance['free']
-                locked_amount = balance['locked']
+                asset = balance[ASSET]
+                free_amount = balance[FREE]
+                locked_amount = balance[LOCKED]
 
                 # Only include assets with non-zero balance
                 if float(free_amount) > 0 or float(locked_amount) > 0:
                     wallet_balances[asset] = {
-                        'free': free_amount,
-                        'locked': locked_amount
+                        FREE: free_amount,
+                        LOCKED: locked_amount
                     }
 
             return wallet_balances
@@ -167,7 +167,7 @@ class BinanceTrader:
     def get_value_of_stable_coins_and_crypto(self) -> tuple:
         """
         Calculates the total value of stablecoins and other cryptocurrencies in the wallet using the Binance API.
-        
+
         Returns:
             tuple: Total value of stablecoins and total value of other cryptocurrencies in the wallet.
         """
@@ -182,8 +182,8 @@ class BinanceTrader:
 
         # Iterate through the user's wallet
         for currency, balance in wallet.items():
-            free_amount = float(balance.get('free', 0))
-            locked_amount = float(balance.get('locked', 0))
+            free_amount = float(balance.get(FREE, 0))
+            locked_amount = float(balance.get(LOCKED, 0))
             total_amount = free_amount + locked_amount
 
             if total_amount == 0:
@@ -199,22 +199,22 @@ class BinanceTrader:
                     total_crypto_value += total_amount * price
                 except Exception as e:
                     logger.exception(f"Failed to fetch price for {currency}: {str(e)}")
-        
+
         logger.debug(f"Crypto value      :{total_crypto_value}")
         logger.debug(f"Stablecoins value :{total_stablecoins_value}")
-        
+
         return total_stablecoins_value, total_crypto_value
 
     def get_price(self, symbol: str) -> float:
         """
         Retrieves the current price for a given symbol from the Binance API.
-        
+
         Args:
             symbol (str): The trading pair symbol, e.g., 'BTCUSDT'.
-        
+
         Returns:
             float: The current market price for the specified trading pair.
-        
+
         Raises:
             ValueError: If the price cannot be retrieved.
         """
@@ -222,7 +222,7 @@ class BinanceTrader:
             # Fetch the current price for the specified trading pair
             ticker = self.client.get_symbol_ticker(symbol=symbol)
             logger.debug(f"Successfully retrieved price for {symbol}")
-            return float(ticker["price"])
+            return float(ticker[PRICE])
         except Exception as e:
             # Raise an error if price retrieval fails
             logger.exception(f"Failed to retrieve price for {symbol}")
@@ -231,43 +231,43 @@ class BinanceTrader:
     def get_step_size(self, symbol):
         """
         Retrieves the step size (LOT_SIZE) for the specified symbol, which is the minimum allowable quantity increment for orders.
-        
+
         Args:
             symbol (str): The cryptocurrency trading pair symbol, e.g., "BTCUSDT".
-        
+
         Returns:
             float: The step size for order quantity, or None if the symbol is not found.
         """
         exchange_info = self.client.get_exchange_info()
-        for s in exchange_info['symbols']:
-            if s['symbol'] == symbol:
-                for f in s['filters']:
-                    if f['filterType'] == 'LOT_SIZE':
-                        logger.debug(f"Step size for {symbol} = {f['stepSize']}")
-                        return float(f['stepSize'])
+        for s in exchange_info[SYMBOLS]:
+            if s[SYMBOL] == symbol:
+                for f in s[FILTERS]:
+                    if f[FILTER_TYPE] == LOT_SIZE:
+                        logger.debug(f"Step size for {symbol} = {f[STEP_SIZE]}")
+                        return float(f[STEP_SIZE])
         logger.error(f"Failed to retrieve step size for {symbol}")
         return None
 
     def get_min_notional(self, symbol):
         """
         Retrieves the min_notional (minimum allowable trade value) for the specified symbol from the Binance API.
-        
+
         Args:
             symbol (str): The cryptocurrency trading pair symbol, e.g., "BTCUSDT".
-        
+
         Returns:
             float: The min_notional value for the trading pair, or None if not found.
         """
         exchange_info = self.client.get_exchange_info()
-        
-        for s in exchange_info['symbols']:
-            if s['symbol'] == symbol:
-                for f in s['filters']:
-                    if f['filterType'] == 'NOTIONAL':
-                        min_notional = f['minNotional']
+
+        for s in exchange_info[SYMBOLS]:
+            if s[SYMBOL] == symbol:
+                for f in s[FILTERS]:
+                    if f[FILTER_TYPE] == 'NOTIONAL':
+                        min_notional = f[MIN_NOTIONAL]
                         logger.debug(f"Min_notional for symbol {symbol}: {min_notional}")
                         return float(min_notional)
-        
+
         # Print message if min_notional is not found for the symbol
         logger.error(f"Min_notional not found for symbol {symbol}")
         return None
@@ -279,33 +279,31 @@ class BinanceTrader:
         """
         buy_count = sell_count = 0
         buy_quantity = sell_quantity = 0.0
-        
+
         pending_buy_count = pending_sell_count = 0
         pending_buy_quantity = pending_sell_quantity = 0.0
-        
+
         pending_total_buy_value = pending_total_sell_value = 0.0
-        
+
         total_buy_value = total_sell_value = 0.0
         estimated_buy_fee = estimated_sell_fee = 0.0
-        
-        
 
         # Fetch all historical orders and calculate filled quantities, values, and estimated fees
         all_orders = self.client.get_all_orders(symbol=symbol)
 
         for order in all_orders:
-            
-            if order['status'] == 'FILLED':
-                executed_quantity = float(order['executedQty'])
-                price = float(order['price'])
+
+            if order[STATUS] == FILLED:
+                executed_quantity = float(order[EXECUTED_QTY])
+                price = float(order[PRICE])
 
                 if price == 0:
                     if executed_quantity > 0:
-                        price = float(order['cummulativeQuoteQty']) / executed_quantity
+                        price = float(order[CUMMULATIVE_QUOTE_QTY]) / executed_quantity
 
                 order_value = executed_quantity * price
 
-                if order['side'] == "BUY":
+                if order[SIDE] == BUY:
                     fee = order_value * FEE_BUY_BINANCE_VALUE
 
                     buy_count += 1
@@ -313,24 +311,23 @@ class BinanceTrader:
                     total_buy_value += order_value
                     estimated_buy_fee += fee
 
-                    
                     if add_missing_orders:
                         from firebase import FirebaseManager
                         FirebaseManager().add_order_to_firebase(
                             Order(
                                 symbol=symbol,
-                                order_id=order['orderId'],
-                                order_type=order['side'],
+                                order_id=order[ORDER_ID],
+                                order_type=order[SIDE],
                                 amount=executed_quantity,
                                 sell_price=0.0,
                                 buy_price=price,
-                                timestamp=order['time'],
+                                timestamp=order[TIME],
                                 strategy='',
-                                status=order['status'],
+                                status=order[STATUS],
                             )
                         )
 
-                elif order['side'] == "SELL":
+                elif order[SIDE] == SELL:
                     fee = order_value * FEE_SELL_BINANCE_VALUE
 
                     sell_count += 1
@@ -343,52 +340,52 @@ class BinanceTrader:
                         FirebaseManager().add_order_to_firebase(
                             Order(
                                 symbol=symbol,
-                                order_id=order['orderId'],
-                                order_type=order['side'],
+                                order_id=order[ORDER_ID],
+                                order_type=order[SIDE],
                                 amount=executed_quantity,
                                 sell_price=price,
                                 buy_price=0.0,
-                                timestamp=order['time'],
+                                timestamp=order[TIME],
                                 strategy='',
-                                status=order['status'],
+                                status=order[STATUS],
                             )
                         )
-                
-            elif order['status'] == 'NEW':
-                origQty_quantity = float(order['origQty'])
-                price = float(order['price'])
+
+            elif order[STATUS] == NEW:
+                origQty_quantity = float(order[ORIG_QTY])
+                price = float(order[PRICE])
                 order_value = origQty_quantity * price
-                
-                if order['side'] == "BUY":
-                    
+
+                if order[SIDE] == BUY:
+
                     fee = order_value * FEE_BUY_BINANCE_VALUE
-                    
+
                     pending_buy_count += 1
                     pending_buy_quantity += origQty_quantity
                     pending_total_buy_value += order_value
                     estimated_buy_fee += fee
-                elif order['side'] == "SELL":
-                    
+                elif order[SIDE] == SELL:
+
                     fee = order_value * FEE_SELL_BINANCE_VALUE
-                    
+
                     pending_sell_count += 1
                     pending_sell_quantity += origQty_quantity
                     pending_total_sell_value += order_value
                     estimated_sell_fee += fee
-                    
+
                 if add_missing_orders:
                     from firebase import FirebaseManager
                     FirebaseManager().add_order_to_firebase(
                         Order(
                             symbol=symbol,
-                            order_id=order['orderId'],
-                            order_type=order['side'],
-                            amount=float(order['origQty']),
-                            sell_price=float(order['price']) if order['side'] == 'SELL' else 0.0,
-                            buy_price=float(order['price']) if order['side'] == 'BUY' else 0.0,
-                            timestamp=order['time'],
+                            order_id=order[ORDER_ID],
+                            order_type=order[SIDE],
+                            amount=float(order[ORIG_QTY]),
+                            sell_price=float(order[PRICE]) if order[SIDE] == SELL else 0.0,
+                            buy_price=float(order[PRICE]) if order[SIDE] == BUY else 0.0,
+                            timestamp=order[TIME],
                             strategy='',
-                            status=order['status'],
+                            status=order[STATUS],
                         )
                     )
 
@@ -435,7 +432,7 @@ class BinanceTrader:
         logger.info(f"Value of Missing Quantity  : {missing_value:.8f} USD")
         logger.info(f"Estimated Profit           : {estimated_profit:.8f} USD")
 
-        
+
         return {
             "buy_count": buy_count,
             "sell_count": sell_count,
@@ -451,26 +448,25 @@ class BinanceTrader:
     def calculate_buy_and_sell_price(self, crypto_pair: CryptoPair, strategy: TradeStrategy):
         """
         Calculates the buy and sell prices based on the buy increase indicator and target profit.
-        
+
         Args:
             crypto_pair (CryptoPair): An object containing information about the cryptocurrency pair.
             strategy(TradeStrategy): Strategy for which the buy and sell price are calculated.
-            
+
         Returns:
             tuple: (buy_price, sell_price) - the rounded buy and sell prices according to tick_size.
         """
-        
+
         tick_size = crypto_pair.tick_size
         current_price = self.get_price(crypto_pair.pair)
         round_price = lambda price, tick_size: round(price / tick_size) * tick_size
-        
+
 
         sell_price = round_price(price=(current_price * (1 + strategy.buy_increase_indicator)), tick_size=tick_size)
         buy_price = round_price(price=(strategy.profit_target * current_price), tick_size=tick_size)
 
-                
         return buy_price, sell_price
-   
+
     async def limit_order(self, cryptoPair: CryptoPair, quantity: float, price: float, side: str):
 
         try:
@@ -478,11 +474,11 @@ class BinanceTrader:
             price_precision = abs(tick_size_decimal.as_tuple().exponent)
             price = Decimal(price).quantize(tick_size_decimal, rounding=ROUND_DOWN)
             formatted_price = "{:.{}f}".format(price, price_precision)  
-            
+
             step_size_decimal = Decimal(str(cryptoPair.step_size))
             quantity_precision = abs(step_size_decimal.as_tuple().exponent)
             quantity = Decimal(quantity).quantize(step_size_decimal, rounding=ROUND_DOWN)
-            
+
             if cryptoPair.step_size == 1:
                 quantity = int(quantity)
                 formatted_quantity = str(quantity)
@@ -495,7 +491,7 @@ class BinanceTrader:
 
             logger.debug(f"Formatted price: {formatted_price}, type: {type(formatted_price)}")
             logger.debug(f"Formatted quantity: {formatted_quantity}, type: {type(formatted_quantity)}")
-            
+
             logger.debug(f"Placing order for {cryptoPair.pair}: {side.capitalize()} order with price: {formatted_price} (type: {type(formatted_price)}), quantity: {formatted_quantity} (type: {type(formatted_quantity)})")
 
             order = self.client.create_order(
@@ -506,24 +502,21 @@ class BinanceTrader:
                 quantity=formatted_quantity,
                 price=str(formatted_price),
             )
-            
+
             logger.info(f"{side.capitalize()} order placed at {formatted_price}!")
             return order
-        
+
         except Exception as e:
             logger.error(f"Error placing {side} order for {cryptoPair.pair}: {e}")
             return None
 
     async def handle_strategies(self, cryptoPair: CryptoPair, strategies: Dict[str, TradeStrategy]):
-        
+
         strategy_func_list = [self.poor_orphan, self.crazy_girl, self.sensible_guy]
         strategy_list = [strategies[POOR_ORPHAN], strategies[CRAZY_GIRL], strategies[SENSIBLE_GUY]]
-       
+
         tasks = []
-        
-    
-        
-  
+
         for strategy_func, strategy in zip(strategy_func_list, strategy_list):
 
             task = asyncio.create_task(
@@ -532,57 +525,55 @@ class BinanceTrader:
                 strategy=strategy
                 )
             )
-            
+
             tasks.append(task)
-        
+
         await asyncio.gather(*tasks)
 
     async def crazy_girl(self, cryptoPair: CryptoPair, strategy: TradeStrategy, timeout: int = 1000, cooldown_period = 200):
-            
+
         logger.debug(f"Strategy: {strategy.name} for {cryptoPair.pair} - Current state: {cryptoPair.current_state[CRAZY_GIRL]}")
-        
+
         if cryptoPair.current_state[CRAZY_GIRL] == TradeState.MONITORING:
-            
+
             ######################################################################
             #czy mamy pewnosc ze jest to ostanie zmaowinie?
-            
-            
+
             last_sell_order: Optional[Order] = max(
                 (
                     order 
                     for order in cryptoPair.orders 
                     if order.strategy == CRAZY_GIRL 
                     and order.order_type == Client.SIDE_SELL 
-                    and order.status == 'FILLED'
+                    and order.status == FILLED
                 ),
                 key=lambda order: order.timestamp,
                 default=None
             )
-            
-            
+
             if last_sell_order:
                 logger.debug(f"Last sell order for {cryptoPair.pair}: {last_sell_order}")
-                
+
                 last_order_time = datetime.fromtimestamp(int(last_sell_order.timestamp) / 1000)
                 elapsed_time = datetime.now() - last_order_time
-                
+
                 cooldown_timedelta = timedelta(seconds=cooldown_period)
-                
+
                 if elapsed_time < cooldown_timedelta:
                     remaining_time = cooldown_timedelta - elapsed_time
                     logger.info(f"Cooldown active for {cryptoPair.pair} - Waiting {remaining_time} before next order.")
                     return
             else:
                 logger.debug(f"Last order is None!")
-           
-            
+
+
             buy_price, sell_price = self.calculate_buy_and_sell_price(
                 crypto_pair=cryptoPair,
                 strategy=strategy
             )
-            
+
             quantity_for_trading = float(cryptoPair.crypto_amount_free) * float(cryptoPair.trading_percentage) * float(cryptoPair.strategy_allocation[CRAZY_GIRL])
-           
+ 
             #############################################################################################################
             if True: #testMode
                 quantity_for_trading = (cryptoPair.min_notional + 0.50) / self.get_price(cryptoPair.pair)
@@ -590,23 +581,22 @@ class BinanceTrader:
                 logger.debug(f"Min_notional = {cryptoPair.min_notional}, current_price = {self.get_price(cryptoPair.pair)}")
                 logger.debug(f"Quantity_for_trading = {quantity_for_trading}.")
                 logger.debug(f"Order price = {quantity_for_trading*self.get_price(cryptoPair.pair)}.")
-                
-   
+
             #############################################################################################################
-                
+
             sell_quantity = quantity_for_trading
             price_order = float(sell_quantity) * float(buy_price)
-            
+
             logger.info(f"Crypto free amount value: {cryptoPair.crypto_amount_free} USD")
             logger.info(f"Crypto locked amount value: {cryptoPair.crypto_amount_locked} USD")
-            
+
             # Check if the order value is less than min_notional
             if price_order < cryptoPair.min_notional:
                 logger.info(f"Cannot place sell order for {cryptoPair.pair}: order value ({price_order}) is less than min_notional ({cryptoPair.min_notional}).")
                 logger.debug(f"Required min_notional for {cryptoPair.pair}: is {cryptoPair.min_notional}, but calculated order value is {price_order}.")
-                
+
             # Check if the order value exceeds available balance
-            
+
             elif price_order >= cryptoPair.value:
                 logger.info(f"Cannot place sell order for {cryptoPair.pair}: order value ({price_order}) exceeds available balance ({cryptoPair.value}).")
                 logger.debug(f"Calculated order value for {cryptoPair.pair}: ({price_order}) is higher than available balance ({cryptoPair.value}).")
@@ -624,19 +614,19 @@ class BinanceTrader:
                     FirebaseManager().add_order_to_firebase(
                         cryptoPair.add_order(
                             Order(
-                                symbol=sell_order['symbol'],
-                                order_id=sell_order['orderId'],
-                                sell_price=sell_order['price'],
+                                symbol=sell_order[SYMBOL],
+                                order_id=sell_order[ORDER_ID],
+                                sell_price=sell_order[PRICE],
                                 buy_price= buy_price,
-                                order_type=sell_order['side'],
-                                amount=float(sell_order['origQty']),
-                                timestamp=sell_order['workingTime'],
+                                order_type=sell_order[SIDE],
+                                amount=float(sell_order[ORIG_QTY]),
+                                timestamp=sell_order[WORKING_TIME],
                                 strategy=CRAZY_GIRL,
-                                status=sell_order['status'],
-                            )    
+                                status=sell_order[STATUS],
+                            )
                         )
                     )
-                    
+
                     logger.info(f"Sell order placed for {cryptoPair.pair} at price {sell_price}")
 
                     # Setting state to WAITING_FOR_SELL
@@ -644,9 +634,9 @@ class BinanceTrader:
                     logger.debug(f"State after placing sell order for {cryptoPair.pair}: {cryptoPair.current_state[CRAZY_GIRL]}")
 
         elif cryptoPair.current_state[CRAZY_GIRL] == TradeState.WAITING_FOR_SELL:
-            
+
             logger.debug(f"Active orders count: {len(cryptoPair.orders)}")
-            
+
             # Retrieving active sell order from `activeOrders`
             active_order: Optional[Order] = max(
                 (
@@ -659,23 +649,23 @@ class BinanceTrader:
                 ),
                 default=None
             )
-            
+
             status = self.get_order_status(cryptoPair.pair, order_id=active_order.order_id)
-            
+
             # Checking if time has exceeded timeout
             elapsed_time = (datetime.now() - datetime.fromtimestamp(int(active_order.timestamp) / 1000)).total_seconds()
-            
-            
+
+
             # Logging order status information
             logger.info("="*50)
             logger.info(f" Waiting for sell order execution for {cryptoPair.pair} ".center(50, "="))
             logger.info("="*50)
-            logger.info(f" Symbol       : {status['symbol']}")
-            logger.info(f" Price        : {status['price']}")
-            logger.info(f" Current Price: {self.get_price(status['symbol'])}")
-            logger.info(f" Quantity     : {status['origQty']}")
-            logger.info(f" Value        : {float(status['origQty']) * float(status['price']):.2f} USD")
-            logger.info(f" Order ID     : {status['orderId']}")
+            logger.info(f" Symbol       : {status[SYMBOL]}")
+            logger.info(f" Price        : {status[PRICE]}")
+            logger.info(f" Current Price: {self.get_price(status[SYMBOL])}")
+            logger.info(f" Quantity     : {status[ORIG_QTY]}")
+            logger.info(f" Value        : {float(status[ORIG_QTY]) * float(status[PRICE]):.2f} USD")
+            logger.info(f" Order ID     : {status[ORDER_ID]}")
             if elapsed_time > timeout:
                 # Canceling the sell order due to timeout
                 canceled_order = await self.cancel_order(cryptoPair.pair, active_order.order_id)
@@ -693,19 +683,18 @@ class BinanceTrader:
                 logger.info(f" Expired      : {timeout - elapsed_time}")
             logger.info("="*50)
 
-            if status['status'] == 'FILLED':
+            if status[STATUS] == FILLED:
                 logger.info(f"Sell order {active_order.order_id} for {cryptoPair.pair} completed. Placing buy order.")
-                
-                
-               
+
+
                 from firebase import FirebaseManager
                 FirebaseManager().add_order_to_firebase(
-                    cryptoPair.set_status(order_id=active_order.order_id, status="FILLED")
+                    cryptoPair.set_status(order_id=active_order.order_id, status=FILLED)
                 )
 
-                
+
                 if active_order:
-                    
+
                     buy_order = await self.limit_order(
                         cryptoPair=cryptoPair, 
                         quantity=active_order.amount, 
@@ -714,35 +703,31 @@ class BinanceTrader:
                     )
 
                     if buy_order:
-                        
+
                         logger.info(f"Buy order placed for {cryptoPair.pair}!")
                         cryptoPair.current_state[CRAZY_GIRL] = TradeState.MONITORING
-                        
+
                         FirebaseManager().add_order_to_firebase(
                             cryptoPair.add_order(
                                 Order(
-                                    symbol=buy_order['symbol'],
-                                    order_id=buy_order['orderId'],
-                                    order_type=buy_order['side'],
-                                    amount=float(buy_order['origQty']),
+                                    symbol=buy_order[SYMBOL],
+                                    order_id=buy_order[ORDER_ID],
+                                    order_type=buy_order[SIDE],
+                                    amount=float(buy_order[ORIG_QTY]),
                                     sell_price=active_order.sell_price,
                                     buy_price=active_order.buy_price,
-                                    timestamp=datetime.fromtimestamp(float(buy_order['workingTime'])/100).strftime('%Y-%m-%d %H:%M:%S'),
+                                    timestamp=datetime.fromtimestamp(float(buy_order[WORKING_TIME])/100).strftime('%Y-%m-%d %H:%M:%S'),
                                     strategy=CRAZY_GIRL,
-                                    status=buy_order['status'],
-                                )    
+                                    status=buy_order[STATUS],
+                                )
                             )
                         )
-                        
-                        
                         logger.debug(f"Current strategy allocation for {cryptoPair.pair}: {cryptoPair.strategy_allocation[CRAZY_GIRL]}")
                     else:
                         logger.error(f"Failed to place buy order for {cryptoPair.pair}!")
 
     async def sensible_guy(self, cryptoPair: CryptoPair, strategy: TradeStrategy, timeout: int = 1000):
-        
         logger.debug(f"Strategy: {strategy.name} for {cryptoPair.pair} state {cryptoPair.current_state[SENSIBLE_GUY]}")
 
     async def poor_orphan(self, cryptoPair: CryptoPair, strategy: TradeStrategy, timeout: int = 1000):
-        
         logger.debug(f"Strategy: {strategy.name} for {cryptoPair.pair} state {cryptoPair.current_state[SENSIBLE_GUY]}")

@@ -1,0 +1,4 @@
+Envinronment variable to set:
+FIREBASE_KEY_PATH
+BINANCE_API_KEY
+BINANCE_SECRET_KEY

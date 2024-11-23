@@ -3,9 +3,10 @@ from binance_api import BinanceTrader
 from firebase import FirebaseManager
 from constants import *
 from logger import logger
+from utils import get_tag
 
 
-VERSION = "1.0.1"
+VERSION = get_tag()
 
 async def main():
 
@@ -35,12 +36,12 @@ async def main():
 
             for crypto_pair in cryptoPairs.pairs:
                 crypto_amounts = firebaseManager.get_crypto_amounts(crypto_pair.pair)
-                crypto_pair.crypto_amount_free = crypto_amounts['crypto_amount_free']
-                crypto_pair.crypto_amount_locked = crypto_amounts['crypto_amount_locked']
+                crypto_pair.crypto_amount_free = crypto_amounts[CRYPTO_AMOUNT_FREE]
+                crypto_pair.crypto_amount_locked = crypto_amounts[CRYPTO_AMOUNT_LOCKED]
                 crypto_pair.value = float(crypto_pair.crypto_amount_free) * float(BinanceTrader().get_price(crypto_pair.pair))
 
 
-                if (float(crypto_pair.crypto_amount_free) * float(crypto_pair.trading_percentage)) > 0 and crypto_pair.pair == "SHIBUSDT":
+                if (float(crypto_pair.crypto_amount_free) * float(crypto_pair.trading_percentage)) > 0:
                     strategy_tasks.append(
                         asyncio.create_task(
                             trader.handle_strategies(cryptoPair=crypto_pair, strategies=cryptoPairs.strategies)
@@ -68,4 +69,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-

@@ -22,7 +22,7 @@ class Order:
 
     def to_dict(self):
         return {
-            "symbol": self.symbol,
+            SYMBOL: self.symbol,
             "order_id": self.order_id,
             "order_type": self.order_type,
             "amount": self.amount,
@@ -30,7 +30,7 @@ class Order:
             "buy_price": self.buy_price,
             "timestamp": self.timestamp,
             "strategy": self.strategy,
-            "status": self.status,
+            STATUS: self.status,
         }
 
 @dataclass
@@ -48,9 +48,9 @@ class CryptoPair:
     tick_size: float = 0.0
     step_size: float = 0.0
     current_state: Dict[str, TradeState] = field(default_factory=lambda: {
-        'crazy_girl': TradeState.MONITORING,
-        'sensible_guy': TradeState.MONITORING,
-        'poor_orphan': TradeState.MONITORING,
+        CRAZY_GIRL   : TradeState.MONITORING,
+        SENSIBLE_GUY : TradeState.MONITORING,
+        POOR_ORPHAN  : TradeState.MONITORING,
     })
 
     def to_dict(self):
@@ -59,8 +59,8 @@ class CryptoPair:
             "trading_percentage": self.trading_percentage,
             "strategy_allocation": self.strategy_allocation,
             "profit_target": self.profit_target,
-            "crypto_amount_free": self.crypto_amount_free,
-            "crypto_amount_locked": self.crypto_amount_locked,
+            CRYPTO_AMOUNT_FREE: self.crypto_amount_free,
+            CRYPTO_AMOUNT_LOCKED: self.crypto_amount_locked,
             "profit": self.profit,
             "orders": [order.to_dict() for order in self.orders],
         }
@@ -72,7 +72,7 @@ class CryptoPair:
             self.orders.pop(0)
 
         return order
-    
+
     def set_status(self, order_id: str, status: str):
         """
         Ustawia nowy status dla zlecenia o podanym order_id w obiekcie CryptoPair.
@@ -90,11 +90,7 @@ class CryptoPair:
         logger.warning(f"No order found with ID {order_id}.")
 
 
-    
-        
-        
-        
- 
+
 @dataclass
 class TradeStrategy:
     name: str
@@ -109,10 +105,10 @@ class TradeStrategy:
             "buy_increase_indicator": self.buy_increase_indicator,
             "profit_target": self.profit_target
         }
-        
+
         # Check if any strategies already exist
         existing_data = ref.get()
-        
+
         if existing_data is None:
             # If there is no existing data, create a new entry
             ref.child(self.name).set(data_to_send)
@@ -120,7 +116,7 @@ class TradeStrategy:
         else:
             # Iterate through existing data
             existing_strategy_names = existing_data.keys()
-            
+
             if self.name in existing_strategy_names:
                 print(f"Strategy {self.name} already exists, not adding.")
             else:
@@ -148,7 +144,7 @@ class Heartbeat:
             "cpu_per_core": cpu_per_core,
             "memory_usage": memory_usage
         }
-    
+
     @staticmethod
     def create_heartbeat(status: str, version: str, custom_message: str):
         system_metrics = Heartbeat.collect_system_metrics()  # Używamy bezpośrednio Heartbeat
@@ -179,8 +175,8 @@ class CryptoPairs:
         for pair in self.pairs:
             pair_key = pair.pair  # Use the pair name as the key
             data_to_send = {
-                "crypto_amount_free": pair.crypto_amount_free,
-                "crypto_amount_locked": pair.crypto_amount_locked,
+                CRYPTO_AMOUNT_FREE: pair.crypto_amount_free,
+                CRYPTO_AMOUNT_LOCKED: pair.crypto_amount_locked,
                 "min_notional": pair.min_notional,
                 "profit": pair.profit,
                 "profit_target": pair.profit_target,
@@ -196,4 +192,3 @@ class CryptoPairs:
             # Set the data under the pair name in Firebase
             ref.child(pair_key).set(data_to_send)
             print(f"Added pair data for {pair_key}: {data_to_send}")
-       
