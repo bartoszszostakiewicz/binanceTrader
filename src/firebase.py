@@ -6,7 +6,7 @@ from binance_api import BinanceTrader
 from data_classes import Order, CryptoPairs, CryptoPair, Heartbeat, TradeStrategy
 from constants import *
 from logger import logger
-from comm_manager import get_private_ip, get_public_ip
+from comm_manager import get_private_ip, get_public_ip, get_ngrok_tunnel
 
 
  
@@ -297,15 +297,18 @@ class FirebaseManager:
             # Firebase references for public and private IPs
             public_ip_ref = db.reference(f"/CryptoTrading/Config/IPs/Public", url=self.dbUrl)
             private_ip_ref = db.reference(f"/CryptoTrading/Config/IPs/Private", url=self.dbUrl)
+            ngrok_tunnel_ref = db.reference(f"/CryptoTrading/Config/IPs/TCPTunnel", url=self.dbUrl)
 
             # Get and save IPs
             public_ip = get_public_ip()
             private_ip = get_private_ip()
+            ngrok_tunnel = get_ngrok_tunnel()
 
             public_ip_ref.set(public_ip)
             private_ip_ref.set(private_ip)
+            ngrok_tunnel_ref.set(ngrok_tunnel)
 
-            logger.info(f"Public IP ({public_ip}) and Private IP ({private_ip}) saved successfully to Firebase.")
+            logger.info(f"Public IP ({public_ip}), Private IP ({private_ip}) and TCP Tunnel{ngrok_tunnel} saved successfully to Firebase.")
         except Exception as e:
             logger.exception(f"Failed to save or update IPs in Firebase: {e}")
     

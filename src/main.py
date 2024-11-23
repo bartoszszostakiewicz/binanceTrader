@@ -4,17 +4,17 @@ from firebase import FirebaseManager
 from constants import *
 from logger import logger
 
-    
-VERSION = "1.0.0"
+
+VERSION = "1.0.1"
 
 async def main():
-    
+
     firebaseManager = FirebaseManager()
     trader = BinanceTrader()
-    
-    
+
+
     cryptoPairs = firebaseManager.fetch_pairs()
-    
+
 
     for crypto_pair in cryptoPairs.pairs:
         trader.analyze_orders(crypto_pair.pair)
@@ -22,54 +22,45 @@ async def main():
 
 
     while True:
-        
+
         i = 0
         powerStatus = firebaseManager.get_power_status()
-        
-        #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-        #to jest winny ze nie mamy aktualnej ilosci forsy na zamowienia|
-        #to powinno byc w petli wewnetrznej ale nie zbyt czesto
-        #jak to wrzuce w petle zewnetrzna to zeruje mi .... rzeczy ktorych nie powinno
-        #
+
         cryptoPairs = firebaseManager.fetch_pairs()
-        
-        
+
+
         while powerStatus:
-            
+
             strategy_tasks = []
-            
+
             for crypto_pair in cryptoPairs.pairs:
-                # Asynchroniczne wywołanie `get_crypto_amounts`
                 crypto_amounts = firebaseManager.get_crypto_amounts(crypto_pair.pair)
                 crypto_pair.crypto_amount_free = crypto_amounts['crypto_amount_free']
                 crypto_pair.crypto_amount_locked = crypto_amounts['crypto_amount_locked']
-                
-                # Sprawdzenie warunku `if`
-                if (float(crypto_pair.crypto_amount_free) * float(crypto_pair.trading_percentage)) > 0 and crypto_pair.pair == "WBETHUSDT":
-                    # Dodanie zadania do listy
+                crypto_pair.value = float(crypto_pair.crypto_amount_free) * float(BinanceTrader().get_price(crypto_pair.pair))
+
+
+                if (float(crypto_pair.crypto_amount_free) * float(crypto_pair.trading_percentage)) > 0 and crypto_pair.pair == "SHIBUSDT":
                     strategy_tasks.append(
                         asyncio.create_task(
                             trader.handle_strategies(cryptoPair=crypto_pair, strategies=cryptoPairs.strategies)
                         )
                     )
-                        
-            # Combine both strategy and monitoring tasks
+
             tasks = strategy_tasks
 
-           
-            # Check if there are any tasks before waiting
+
             if tasks:
-                # Wait for at least one task to complete
                 await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
             else:
                 logger.info("No tasks to execute, waiting for conditions to be met.")
                 await asyncio.sleep(5)
-            
-            
+
+
             firebaseManager.send_heartbeat(version=VERSION)
             powerStatus = firebaseManager.get_power_status()
-            
-            
+
+
             i += 1
             logger.debug(f'Iteration {i}')
 

@@ -37,3 +37,29 @@ def get_public_ip():
         logger.exception(f"Failed to retrieve public IP address: {e}")
         return None
     
+def get_ngrok_tunnel():
+    """
+    Fetches the current ngrok TCP tunnel address.
+
+    Returns:
+        str: The TCP tunnel address, e.g., "tcp://0.tcp.eu.ngrok.io:10605".
+        None: If no TCP tunnel is active or an error occurs.
+    """
+    try:
+        # Ngrok web interface URL (default)
+        ngrok_api_url = "http://127.0.0.1:4040/api/tunnels"
+
+        # Fetch tunnel details
+        response = requests.get(ngrok_api_url)
+        response.raise_for_status()
+        tunnels = response.json().get("tunnels", [])
+
+        # Find the TCP tunnel
+        for tunnel in tunnels:
+            if tunnel["proto"] == "tcp":
+                return tunnel["public_url"]  # e.g., "tcp://0.tcp.eu.ngrok.io:10605"
+
+        return None  # No TCP tunnel found
+    except requests.RequestException as e:
+        print(f"Error fetching ngrok tunnel: {e}")
+        return None
