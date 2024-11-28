@@ -1,16 +1,15 @@
-from typing import List
+import asyncio
+import signal
+import threading
+import time
 import firebase_admin
 from firebase_admin import credentials, db
-import requests
-from binance_api import BinanceTrader
-from data_classes import Order, CryptoPairs, CryptoPair, Heartbeat, TradeStrategy
-from constants import *
-from logger import logger
+from data_classes import Order, Heartbeat
+from globals import *
+from logger import logger, logging
 from utils import get_private_ip, get_public_ip, get_ngrok_tunnel
 from os import getenv
 
-
- 
 
 
 class FirebaseManager:
@@ -28,6 +27,8 @@ class FirebaseManager:
             logger.debug("Initializing FirebaseManager")
             self.initialized = True
             self.dbUrl = 'https://bintrader-ffeeb-default-rtdb.firebaseio.com/'
+            self.listeners = []
+            self.threads = []
 
             try:
                 firebase_key_path = getenv(FIREBASE_KEY_PATH)
@@ -37,18 +38,14 @@ class FirebaseManager:
 
                 self.cred = credentials.Certificate(firebase_key_path)
 
-
                 firebase_admin.initialize_app(self.cred)
                 logger.debug("Firebase initialized successfully.")
 
                 logger.debug("Private and public ips was set successfully")
                 self.save_ips_to_firebase()
 
-
                 self.ref = db.reference("/CryptoTrading", url=self.dbUrl)
                 logger.debug("Firebase database reference set successfully.")
-
-
 
             except FileNotFoundError as e:
                 logger.error("Firebase credentials file not found.")
@@ -57,49 +54,6 @@ class FirebaseManager:
             except Exception as e:
                 logger.exception("An unexpected error occurred during Firebase initialization.")
                 raise ValueError(f"Failed to initialize Firebase: {str(e)}")
-
-    def login_to_firebase(self, email, password):
-        api_key = 'AIzaSyBECJFlN8QCFGhExZ7VxSACo6iSWKp8FvI'
-        url = f'https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key={api_key}'
-
-        payload = {
-            'email': email,
-            'password': password,
-            'returnSecureToken': True
-        }
-
-        response = requests.post(url, json=payload)
-
-        if response.status_code == 200:
-            data = response.json()
-            logger.debug('Zalogowano pomyślnie!')
-            logger.debug('Token:', data['idToken'])
-        else:
-            logger.error('Błąd logowania:', response.json())
-
-    def get_power_status(self):
-        self.ref = db.reference("/CryptoTrading/__Power__", url=self.dbUrl)
-        return self.ref.get()
-
-    def set_power_status(self,status: bool):
-        self.ref = db.reference("/CryptoTrading/__Power__", url=self.dbUrl)
-        self.ref.set(status)
-
-    def get_debug_mode(self):
-        self.ref = db.reference("/CryptoTrading/Config/Debug", url=self.dbUrl)
-        return self.ref.get()
-
-    def set_debug_mode(self,status: bool):
-        self.ref = db.reference("/CryptoTrading/Config/Debug", url=self.dbUrl)
-        self.ref.set(status)
-
-    def get_monitor_orders(self):
-        self.ref = db.reference("/CryptoTrading/Config/OrdersMonitoring", url=self.dbUrl)
-        return self.ref.get()
-
-    def set_monitor_orders(self,status: bool):
-        self.ref = db.reference("/CryptoTrading/Config/OrdersMonitoring", url=self.dbUrl)
-        self.ref.set(status)
 
     def update_profit(self, profit: float):
         ref_profit = db.reference("/CryptoTrading/Wallet/Profit", url=self.dbUrl)
@@ -116,156 +70,19 @@ class FirebaseManager:
         ref_profit = db.reference("/CryptoTrading/Wallet/TotalValue", url=self.dbUrl)
         ref_profit.set(total_value)
 
-    def get_crypto_value(self):
-        """
-        Pobiera wartość kryptowalut z bazy danych Firebase.
- 
-        :return: Wartość kryptowalut przechowywana w Firebase
-        """
-        ref_crypto_value = db.reference("/CryptoTrading/CryptoValue", url=self.dbUrl)
-        crypto_value = ref_crypto_value.get()
-        return crypto_value
+    def send_heartbeat(self ,status="OK", version="1.0.0"):
+        heartbeat = Heartbeat.create_heartbeat(status=status, version=version)
 
-    def get_pairs(self):
-        self.ref = db.reference("/CryptoTrading/Pairs", url=self.dbUrl)
-        return self.ref.get()
-
-    def update_value_for_pair(self, pair_name: str, value: float):
-        """Updates the value of a cryptocurrency pair in Firebase."""
-        #?????????????????????????????
-        ref_value = self.ref.child(f"{pair_name}/value")
-        ref_value.set(value)
-
-    def update_min_notional(self, pair_name: str, min_notional: float):
-        """Updates the minimum notional of a cryptocurrency pair in Firebase."""
-        ref_min_notional = self.ref.child(f"{pair_name}/min_notional")  # Removed extra "Pairs"
-        ref_min_notional.set(min_notional)
-
-    def update_crypto_amount(self, pair_name: str, crypto_amount_locked: float, crypto_amount_free: float):
-        """Updates the free and locked cryptocurrency amounts of a pair in Firebase."""
-        ref_crypto_amount_locked = self.ref.child(f"{pair_name}/crypto_amount_locked")  # Removed extra "Pairs"
-        ref_crypto_amount_free = self.ref.child(f"{pair_name}/crypto_amount_free")  # Removed extra "Pairs"
-        ref_crypto_amount_locked.set(crypto_amount_locked)
-        ref_crypto_amount_free.set(crypto_amount_free)
-
-    def update_profit_for_pair(self, pair_name: str, profit: float):
-        """Updates the profit of a cryptocurrency pair in Firebase."""
-        ref_profit = self.ref.child(f"{pair_name}/profit")  # Removed extra "Pairs"
-        ref_profit.set(profit)
-
-    def get_value(self, pair: str, amount: float) -> float:
-        # Example calculation of value (price could be fetched from an API or cache)
-        price = BinanceTrader().get_price(pair)  # Assuming you have access to a price method
-        return float(amount) * price
-
-    def fetch_pairs(self) -> CryptoPairs: 
-        data = self.get_pairs()
-        wallet = BinanceTrader().get_wallet_balances()
-        profit = 0
-        crypto_pairs = CryptoPairs()  # Create a CryptoPairs object
-
-        # Iterate through the data fetched from Firebase
-        for pair_name, pair_data in data.items():
-
-            # Update data fetched from Binance to Firebase
-            if pair_name[:-4] in wallet:
-                balance = wallet[pair_name[:-4]]
-                pair_data[CRYPTO_AMOUNT_FREE] = balance[FREE]
-                pair_data[CRYPTO_AMOUNT_LOCKED] = balance[LOCKED]
-
-                # Calculate the value of the asset (free and locked cryptocurrency)
-                free_value = self.get_value(pair_name, pair_data[CRYPTO_AMOUNT_FREE])
-                locked_value = self.get_value(pair_name, pair_data[CRYPTO_AMOUNT_LOCKED])
-
-                logger.debug(f"Free   value for {pair_name}: {free_value}")
-                logger.debug(f"Locked value for {pair_name}: {locked_value}")
-
-                total_value = free_value + locked_value
-
-                # Minimum trading value
-                min_notional = BinanceTrader().get_min_notional(pair_name)
-
-                # Update Firebase data
-                self.update_crypto_amount(pair_name, pair_data[CRYPTO_AMOUNT_LOCKED], pair_data[CRYPTO_AMOUNT_FREE])
-                self.update_min_notional(pair_name, min_notional)
-                self.update_value_for_pair(pair_name, total_value)
-
-
-
-                # Create a CryptoPair object
-                crypto_pair = CryptoPair(
-                    pair=pair_name,
-                    trading_percentage=pair_data.get('trading_percentage', 0),
-                    strategy_allocation=pair_data.get('strategy_allocation', {}),
-                    profit_target=pair_data.get('profit_target', 0),
-                    crypto_amount_free=pair_data[CRYPTO_AMOUNT_FREE],
-                    crypto_amount_locked=pair_data[CRYPTO_AMOUNT_LOCKED],
-                    orders=[],
-                    min_notional=min_notional,
-                    profit=0,
-                    value=total_value,
-                    tick_size=BinanceTrader().get_tick_size(symbol=pair_name),
-                    step_size=BinanceTrader().get_step_size(symbol=pair_name)
-                )
-
-                # Add CryptoPair to the list
-                crypto_pairs.pairs.append(crypto_pair)
-
-        for strategy in self.get_strategies():
-            crypto_pairs.add_strategy(strategy)
-
-
-        # Update total profit and overall value in Firebase
-        self.update_profit(profit=0)
-        self.update_value(BinanceTrader().get_value_of_stable_coins_and_crypto())
-
-        # Return the list of cryptocurrency pairs
-        return crypto_pairs
-
-    def send_heartbeat(self ,status="OK", version="1.0.0", custom_message="All systems operational"):
-        heartbeat = Heartbeat.create_heartbeat(status=status, version=version, custom_message=custom_message)
-
-        # Konwersja obiektu Heartbeat do słownika
         heartbeat_data = {
             "timestamp": heartbeat.timestamp.isoformat().replace("T"," | "),
             STATUS: heartbeat.status,
             "version": heartbeat.version,
             "cpu_load": heartbeat.cpu_load,
             "memory_usage": heartbeat.memory_usage,
-            "custom_message": heartbeat.custom_message
         }
 
-        # Wysyłanie danych do Firebase, nadpisując istniejący wpis
         self.ref = db.reference("/CryptoTrading/Heartbeat", url=self.dbUrl)
-        self.ref.set(heartbeat_data)  # Użycie set, aby nadpisać dane
-
-    def get_strategies(self) -> List[TradeStrategy]:
-        """
-        Fetches trading strategies from the Firebase database and returns them as a list of TradeStrategy objects.
-
-        Returns:
-            List[TradeStrategy]: A list of strategies fetched from the database.
-        """
-        self.ref = db.reference("/CryptoTrading", url=self.dbUrl)
-        strategies_ref = self.ref.child("Strategies")
-        strategies_data = strategies_ref.get()
-
-        strategies = []
-        if strategies_data:
-            for strategy_name, strategy_info in strategies_data.items():
-                if isinstance(strategy_info, dict):
-                    buy_increase_indicator = strategy_info.get("buy_increase_indicator", 0.0)
-                    profit_target = strategy_info.get("profit_target", 0.0)
-                    strategy = TradeStrategy(name=strategy_name, 
-                                             buy_increase_indicator=buy_increase_indicator, 
-                                             profit_target=profit_target)
-                    strategies.append(strategy)
-                else:
-                    logger.error(f"Unexpected data type for strategy: {type(strategy_info)}")
-        else:
-            logger.error("No strategies found in the database.")
-
-        return strategies
+        self.ref.set(heartbeat_data)
 
     def add_order_to_firebase(self, order: Order):
         """
@@ -319,51 +136,190 @@ class FirebaseManager:
         except Exception as e:
             logger.exception(f"Failed to save or update IPs in Firebase: {e}")
 
-    def create_development_path(self):
-        source_path = '/CryptoTrading'
-        destination_path = '/CryptoTradingDevelopment'
+    async def shutdown(self, loop):
+        """Closes active tasks and closes the loop safely."""
+        logger.info("Shutting down tasks and closing listeners...")
+        self.close_listeners()
 
-        ref = db.reference(source_path,url=self.dbUrl)
-        data = ref.get()
+        tasks = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
+        for task in tasks:
+            task.cancel()
 
-        if data:
-            new_ref = db.reference(destination_path, url=self.dbUrl)
-            new_ref.set(data)
-            logger.debug(f"Data copied successfully to {destination_path}")
+        logger.info(f"Cancelling {len(tasks)} tasks...")
+        await asyncio.gather(*tasks, return_exceptions=True)
+        loop.stop()
+
+    def setup_signal_handler(self, loop):
+        """Sets the handling of the Ctrl+C signal."""
+        def signal_handler(sig, frame):
+            logger.info(f"Signal {sig} received. Shutting down...")
+            asyncio.ensure_future(self.shutdown(loop))
+        signal.signal(signal.SIGINT, signal_handler)
+
+    def monitor_variable(self, path: str, listener):
+            ref = db.reference(path, url=self.dbUrl)
+            self.listeners.append(ref.listen(listener))
+
+    def close_listeners(self):
+        """Closes Firebase listeners and waits for threads to terminate.."""
+        for listener in self.listeners:
+            start_time = time.time()
+            listener.close()
+            logger.debug(f"Listener {listener} closed in {time.time() - start_time:.2f} seconds.")
+        for thread in self.threads:
+            thread.join()
+        logger.debug("Firebase listeners closed.")
+
+    def start_listener_in_thread(self):
+        """Runs listeners in separate threads."""
+        thread1 = threading.Thread(target=self.monitor_variable, args=(LOGGING_VARIABLE_PATH, self.logging_level_listener), daemon=True)
+        thread2 = threading.Thread(target=self.monitor_variable, args=(POWER_STATUS_PATH, self.power_status_listener), daemon=True)
+        thread3 = threading.Thread(target=self.monitor_variable, args=(STRATEGIES_PATH, self.strategies_listener), daemon=True)
+        thread4 = threading.Thread(target=self.monitor_variable, args=(PAIRS_PATH, self.pairs_listener), daemon=True)
+
+        self.threads.extend([thread1, thread2, thread3])
+        thread1.start()
+        thread2.start()
+        thread3.start()
+        thread4.start()
+
+    def logging_level_listener(self, event):
+        global LOGGING_LEVEL
+        allowed_levels = {logging.DEBUG, logging.INFO, logging.WARNING, logging.ERROR, logging.CRITICAL}
+        previous_level = LOGGING_LEVEL.logging_level
+
+        if event.data in allowed_levels:
+            LOGGING_LEVEL.logging_level = event.data
+            logger.info(f"Changing LOGGING_LEVEL: {logging.getLevelName(LOGGING_LEVEL.logging_level)}")
+            logger.setLevel(LOGGING_LEVEL.logging_level)
         else:
-            logger.debug("Source path is empty or doesn't exist.")
+            logger.error(f"Invalid logging level: {event.data}. Choose one of {allowed_levels}.")
 
-    def get_wallet_balances(self, force_refresh: bool = True):
-        # Sprawdź, czy cache istnieje oraz czy minął czas jego ważności (np. 5 minut)
-        if force_refresh or not hasattr(self, '_wallet_cache'):
-            self._wallet_cache = BinanceTrader().get_wallet_balances()
-        return self._wallet_cache
+            ref = db.reference(LOGGING_VARIABLE_PATH, url=self.dbUrl)
+            ref.set(previous_level)
+            logger.info(f"Restored previous value of level: {logging.getLevelName(previous_level)}")
 
-    def get_crypto_amounts(self, pair_name: str) -> dict:
-        """
-        Fetches the `crypto_amount_free` and `crypto_amount_locked` for a given cryptocurrency pair 
-        using cached wallet balances.
+    def power_status_listener(self, event):
+        global POWER_STATUS
 
-        Args:
-            pair_name (str): The name of the cryptocurrency pair (e.g., 'BTCUSDT').
+        POWER_STATUS.power_status = event.data
+        logger.info(f"Power status changed to: {POWER_STATUS.power_status}")
 
-        Returns:
-            dict: A dictionary containing `crypto_amount_free` and `crypto_amount_locked`.
-        """
+    def strategies_listener(self, event):
+        """Listener for updates in the STRATEGIES path."""
+        global STRATEGIES
 
-        wallet = self.get_wallet_balances()
+        path = event.path.lstrip("/")
+        event_data = event.data
 
-        crypto_symbol = pair_name[:-4]  
+        if not path:
+            if isinstance(event_data, dict):
+                logger.info("Replacing entire strategies structure.")
+                try:
+                    STRATEGIES.strategies = {
+                        name: TradeStrategy(name=name, **data)
+                        for name, data in event_data.items()
+                    }
+                except TypeError as e:
+                    logger.error(f"Failed to rebuild strategies: {e}")
+            else:
+                logger.error(f"Unexpected data structure for full path update: {event_data}")
+            return
 
-        if crypto_symbol in wallet:
-            balance = wallet[crypto_symbol]
-            return {
-                CRYPTO_AMOUNT_FREE: balance[FREE],
-                CRYPTO_AMOUNT_LOCKED: balance[LOCKED]
-            }
+        path_parts = path.split("/")
+
+        if len(path_parts) == 1:
+            strategy_name = path_parts[0]
+            if isinstance(event_data, dict):
+                logger.info(f"Replacing strategy {strategy_name} with new data: {event_data}")
+                try:
+                    STRATEGIES.strategies[strategy_name] = TradeStrategy(name=strategy_name, **event_data)
+                except TypeError as e:
+                    logger.error(f"Failed to update strategy {strategy_name}: {e}")
+            else:
+                logger.error(f"Unexpected data for strategy {strategy_name}: {event_data}")
+
+        elif len(path_parts) == 2:
+            strategy_name, field = path_parts
+            if strategy_name in STRATEGIES.strategies:
+                current_strategy = STRATEGIES.strategies[strategy_name]
+                if hasattr(current_strategy, field):
+                    current_value = getattr(current_strategy, field)
+                    if current_value != event_data:
+                        logger.info(f"Updating {strategy_name}.{field} from {current_value} to {event_data}")
+                        setattr(current_strategy, field, event_data)
+                else:
+                    logger.warning(f"Strategy {strategy_name} has no field '{field}' to update.")
+            else:
+                logger.warning(f"Strategy {strategy_name} not found in STRATEGIES.")
+
         else:
-            # Jeśli waluty nie ma w portfelu, zwróć wartości zerowe
-            return {
-                CRYPTO_AMOUNT_FREE: 0,
-                CRYPTO_AMOUNT_LOCKED: 0
-            }
+            logger.warning(f"Unhandled path format: {path}")
+
+        logger.info(f"STRATEGIES: {STRATEGIES.strategies}")
+
+    def pairs_listener(self, event):
+        """Listener for updates in the PAIRS path."""
+        global PAIRS
+
+        path = event.path.lstrip("/")
+        event_data = event.data
+
+        if not path:
+            if isinstance(event_data, dict):
+                logger.info("Replacing entire pairs structure.")
+                try:
+                    PAIRS.pairs = {
+                        pair_name: {
+                            "strategy_allocation": data["strategy_allocation"],
+                            "trading_percentage": data["trading_percentage"]
+                        }
+                        for pair_name, data in event_data.items()
+                    }
+                except TypeError as e:
+                    logger.error(f"Failed to rebuild pairs: {e}")
+            else:
+                logger.error(f"Unexpected data structure for full path update: {event_data}")
+            return
+
+        path_parts = path.split("/")
+
+        if len(path_parts) == 1:
+            pair_name = path_parts[0]
+            if isinstance(event_data, dict):
+                logger.info(f"Replacing pair {pair_name} with new data: {event_data}")
+                try:
+                    PAIRS.pairs[pair_name] = {
+                        "strategy_allocation": event_data.get("strategy_allocation", {}),
+                        "trading_percentage": event_data.get("trading_percentage", 1)
+                    }
+                except TypeError as e:
+                    logger.error(f"Failed to update pair {pair_name}: {e}")
+            else:
+                logger.error(f"Unexpected data for pair {pair_name}: {event_data}")
+
+        elif len(path_parts) == 2:
+            pair_name, field = path_parts
+            if pair_name in PAIRS.pairs:
+                current_pair = PAIRS.pairs[pair_name]
+                if field == "strategy_allocation":
+                    if isinstance(event_data, dict):
+                        current_pair["strategy_allocation"] = event_data
+                        logger.info(f"Updating {pair_name}.strategy_allocation to {event_data}")
+                    else:
+                        logger.warning(f"Invalid data for {pair_name}.strategy_allocation: {event_data}")
+                elif field == "trading_percentage":
+                    if isinstance(event_data, (int, float)):
+                        current_pair["trading_percentage"] = event_data
+                        logger.info(f"Updating {pair_name}.trading_percentage to {event_data}")
+                    else:
+                        logger.warning(f"Invalid data for {pair_name}.trading_percentage: {event_data}")
+                else:
+                    logger.warning(f"Unknown field {field} for pair {pair_name}")
+            else:
+                logger.warning(f"Pair {pair_name} not found in PAIRS.")
+
+        else:
+            logger.warning(f"Unhandled path format: {path}")
+
+        logger.info(f"PAIRS: {PAIRS.pairs}")

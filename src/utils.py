@@ -62,8 +62,8 @@ def get_ngrok_tunnel():
 
         return None  # No TCP tunnel found
     except requests.RequestException as e:
-        print(f"Error fetching ngrok tunnel: {e}")
-        return None
+        logger.info(f"Probably non active ngrok tunnel!")
+        return "None active tcp tunnel"
 
 def get_tag():
     repo = Repo()

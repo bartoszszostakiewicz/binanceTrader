@@ -4,20 +4,21 @@ from decimal import Decimal, ROUND_DOWN
 from typing import Dict, Optional
 from binance.client import Client
 from datetime import datetime, timedelta
-from data_classes import CryptoPair, Order, TradeStrategy
+from data_classes import CryptoPair, CryptoPairs, Order
+from observable import TradeStrategy
 from colorama import Fore, Style, init
-from constants import *
+from globals import *
 from logger import logger
 
 
-class BinanceTrader:
+class BinanceManager:
 
     _instance = None
     _initialized = False
 
     def __new__(cls, *args, **kwargs):
         if not cls._instance:
-            cls._instance = super(BinanceTrader, cls).__new__(cls, *args, **kwargs)
+            cls._instance = super(BinanceManager, cls).__new__(cls, *args, **kwargs)
         return cls._instance
 
     def __init__(self) -> None:
@@ -49,12 +50,12 @@ class BinanceTrader:
             logger.exception(f"Error initializing Binance client: {e}")
 
     def get_price(self, symbol: str) -> dict:
-        """Pobiera aktualną cenę dla danego symbolu z Binance API."""
+        """Gets the current price for a given symbol from the Binance API."""
         try:
             price_data = self.client.get_symbol_ticker(symbol=symbol)
             return price_data  # Zwracamy wynik jako słownik z ceną
         except Exception as e:
-            logger.exception(f"Błąd podczas pobierania ceny dla symbolu {symbol}: {e}")
+            logger.exception(f"Error getting price for symbol {symbol}: {e}")
             return {}
 
     def get_tick_size(self, symbol):
@@ -163,6 +164,10 @@ class BinanceTrader:
         except Exception as e:
             logger.exception(f"Error retrieving wallet balances: {e}")
             return {}
+
+    def get_value(self, pair: str, amount: float) -> float:
+        price = self.get_price(pair) 
+        return float(amount) * price
 
     def get_value_of_stable_coins_and_crypto(self) -> tuple:
         """
@@ -467,6 +472,69 @@ class BinanceTrader:
 
         return buy_price, sell_price
 
+    def fetch_pairs(self) -> CryptoPairs: 
+        global PAIRS
+        wallet = self.get_wallet_balances()
+        crypto_pairs = CryptoPairs()
+
+        for pair_name, _ in PAIRS.pairs.items():
+            if pair_name[:-4] in wallet:
+                balance = wallet[pair_name[:-4]]
+
+                free_value = self.get_value(pair_name, balance[FREE])
+                locked_value = self.get_value(pair_name, balance[LOCKED])
+
+                logger.debug(f"Free   value for {pair_name}: {free_value}")
+                logger.debug(f"Locked value for {pair_name}: {locked_value}")
+
+                total_value = free_value + locked_value
+
+                min_notional = self.get_min_notional(pair_name)
+
+                crypto_pair = CryptoPair(
+                    pair=pair_name,
+                    crypto_amount_free=free_value,
+                    crypto_amount_locked=locked_value,
+                    orders=[],
+                    min_notional=min_notional,
+                    profit=0,
+                    value=total_value,
+                    tick_size=self.get_tick_size(symbol=pair_name),
+                    step_size=self.get_step_size(symbol=pair_name)
+                )
+
+                crypto_pairs.pairs.append(crypto_pair)
+
+        return crypto_pairs
+
+    def get_crypto_amounts(self, pair_name: str) -> dict:
+        """
+        Fetches the `crypto_amount_free` and `crypto_amount_locked` for a given cryptocurrency pair 
+        using cached wallet balances.
+
+        Args:
+            pair_name (str): The name of the cryptocurrency pair (e.g., 'BTCUSDT').
+
+        Returns:
+            dict: A dictionary containing `crypto_amount_free` and `crypto_amount_locked`.
+        """
+
+        wallet = self.get_wallet_balances()
+
+        crypto_symbol = pair_name[:-4]  
+
+        if crypto_symbol in wallet:
+            balance = wallet[crypto_symbol]
+            return {
+                CRYPTO_AMOUNT_FREE: balance[FREE],
+                CRYPTO_AMOUNT_LOCKED: balance[LOCKED]
+            }
+        else:
+            return {
+                CRYPTO_AMOUNT_FREE: 0,
+                CRYPTO_AMOUNT_LOCKED: 0
+            }
+
     async def limit_order(self, cryptoPair: CryptoPair, quantity: float, price: float, side: str):
 
         try:
@@ -510,95 +578,68 @@ class BinanceTrader:
             logger.error(f"Error placing {side} order for {cryptoPair.pair}: {e}")
             return None
 
-    async def handle_strategies(self, cryptoPair: CryptoPair, strategies: Dict[str, TradeStrategy]):
-
-        strategy_func_list = [self.poor_orphan, self.crazy_girl, self.sensible_guy]
-        strategy_list = [strategies[POOR_ORPHAN], strategies[CRAZY_GIRL], strategies[SENSIBLE_GUY]]
+    async def handle_strategies(self, cryptoPair: CryptoPair):
+        global STRATEGIES
+        global PAIRS
+        strategy_list = [STRATEGIES.strategies[POOR_ORPHAN], STRATEGIES.strategies[CRAZY_GIRL], STRATEGIES.strategies[SENSIBLE_GUY]]
 
         tasks = []
 
-        for strategy_func, strategy in zip(strategy_func_list, strategy_list):
+        for strategy in strategy_list:
+            allocation = float(PAIRS.pairs[cryptoPair.pair]['strategy_allocation'][strategy.name])
+            if allocation > 0:
+                logger.debug(f"Creating task for strategy {strategy.name} on pair {cryptoPair.pair} with allocation {allocation}")
 
-            task = asyncio.create_task(
-                strategy_func(
-                cryptoPair=cryptoPair,
-                strategy=strategy
+                task = asyncio.create_task(
+                    self.process_strategy(
+                        cryptoPair=cryptoPair,
+                        strategy=strategy
+                    )
                 )
-            )
-
             tasks.append(task)
+        else:
+            logger.debug(f"Skipping strategy {strategy.name} for pair {cryptoPair.pair} due to zero allocation")
 
         await asyncio.gather(*tasks)
 
-    async def crazy_girl(self, cryptoPair: CryptoPair, strategy: TradeStrategy, timeout: int = 1000, cooldown_period = 200):
+    async def process_strategy(self, cryptoPair: CryptoPair, strategy: TradeStrategy):
+        global PAIRS
 
-        logger.debug(f"Strategy: {strategy.name} for {cryptoPair.pair} - Current state: {cryptoPair.current_state[CRAZY_GIRL]}")
+        logger.debug(f"Strategy: {strategy.name} for {cryptoPair.pair} - Current state: {cryptoPair.current_state[strategy.name]}")
 
-        if cryptoPair.current_state[CRAZY_GIRL] == TradeState.MONITORING:
-
-            ######################################################################
-            #czy mamy pewnosc ze jest to ostanie zmaowinie?
-
-            last_sell_order: Optional[Order] = max(
-                (
-                    order 
-                    for order in cryptoPair.orders 
-                    if order.strategy == CRAZY_GIRL 
-                    and order.order_type == Client.SIDE_SELL 
-                    and order.status == FILLED
-                ),
-                key=lambda order: order.timestamp,
-                default=None
-            )
-
-            if last_sell_order:
-                logger.debug(f"Last sell order for {cryptoPair.pair}: {last_sell_order}")
-
-                last_order_time = datetime.fromtimestamp(int(last_sell_order.timestamp) / 1000)
-                elapsed_time = datetime.now() - last_order_time
-
-                cooldown_timedelta = timedelta(seconds=cooldown_period)
-
-                if elapsed_time < cooldown_timedelta:
-                    remaining_time = cooldown_timedelta - elapsed_time
-                    logger.info(f"Cooldown active for {cryptoPair.pair} - Waiting {remaining_time} before next order.")
-                    return
-            else:
-                logger.debug(f"Last order is None!")
-
+        if cryptoPair.current_state[strategy.name] == TradeState.MONITORING:
 
             buy_price, sell_price = self.calculate_buy_and_sell_price(
                 crypto_pair=cryptoPair,
                 strategy=strategy
             )
 
-            quantity_for_trading = float(cryptoPair.crypto_amount_free) * float(cryptoPair.trading_percentage) * float(cryptoPair.strategy_allocation[CRAZY_GIRL])
- 
-            #############################################################################################################
-            if True: #testMode
-                quantity_for_trading = (cryptoPair.min_notional + 0.50) / self.get_price(cryptoPair.pair)
-                logger.debug(f"Test mode enabled: Calculated quantity_for_trading based on min_notional + $0.50.")
-                logger.debug(f"Min_notional = {cryptoPair.min_notional}, current_price = {self.get_price(cryptoPair.pair)}")
-                logger.debug(f"Quantity_for_trading = {quantity_for_trading}.")
-                logger.debug(f"Order price = {quantity_for_trading*self.get_price(cryptoPair.pair)}.")
+            quantity_for_trading = 0
 
-            #############################################################################################################
+            if strategy.name == CRAZY_GIRL:
+                quantity_for_trading = float(cryptoPair.crypto_amount_free) * float(PAIRS.pairs[cryptoPair.pair]["trading_percentage"]) * float(PAIRS.pairs[cryptoPair.pair]['strategy_allocation'][strategy.name])
+            elif strategy.name == SENSIBLE_GUY:
+                quantity_for_trading = float(cryptoPair.crypto_amount_free) * float(PAIRS.pairs[cryptoPair.pair]["trading_percentage"]) * float(PAIRS.pairs[cryptoPair.pair]['strategy_allocation'][strategy.name])
+            elif strategy.name == POOR_ORPHAN:
+                quantity_for_trading = (cryptoPair.min_notional + PRICE_TRESHOLD) / self.get_price(cryptoPair.pair)
+
+            logger.debug(f"Quantity_for_trading = {quantity_for_trading}.")
 
             sell_quantity = quantity_for_trading
             price_order = float(sell_quantity) * float(buy_price)
 
-            logger.info(f"Crypto free amount value: {cryptoPair.crypto_amount_free} USD")
-            logger.info(f"Crypto locked amount value: {cryptoPair.crypto_amount_locked} USD")
+            logger.debug(f"Crypto free   amount: {cryptoPair.crypto_amount_free} {cryptoPair.pair[:-4]}")
+            logger.debug(f"Crypto locked amount: {cryptoPair.crypto_amount_locked} {cryptoPair.pair[:-4]}")
 
             # Check if the order value is less than min_notional
             if price_order < cryptoPair.min_notional:
-                logger.info(f"Cannot place sell order for {cryptoPair.pair}: order value ({price_order}) is less than min_notional ({cryptoPair.min_notional}).")
+                logger.debug(f"Cannot place sell order for {cryptoPair.pair}: order value ({price_order}) is less than min_notional ({cryptoPair.min_notional}).")
                 logger.debug(f"Required min_notional for {cryptoPair.pair}: is {cryptoPair.min_notional}, but calculated order value is {price_order}.")
 
             # Check if the order value exceeds available balance
 
             elif price_order >= cryptoPair.value:
-                logger.info(f"Cannot place sell order for {cryptoPair.pair}: order value ({price_order}) exceeds available balance ({cryptoPair.value}).")
+                logger.debug(f"Cannot place sell order for {cryptoPair.pair}: order value ({price_order}) exceeds available balance ({cryptoPair.value}).")
                 logger.debug(f"Calculated order value for {cryptoPair.pair}: ({price_order}) is higher than available balance ({cryptoPair.value}).")
 
             else:
@@ -621,7 +662,7 @@ class BinanceTrader:
                                 order_type=sell_order[SIDE],
                                 amount=float(sell_order[ORIG_QTY]),
                                 timestamp=sell_order[WORKING_TIME],
-                                strategy=CRAZY_GIRL,
+                                strategy=strategy.name,
                                 status=sell_order[STATUS],
                             )
                         )
@@ -629,11 +670,11 @@ class BinanceTrader:
 
                     logger.info(f"Sell order placed for {cryptoPair.pair} at price {sell_price}")
 
-                    # Setting state to WAITING_FOR_SELL
-                    cryptoPair.current_state[CRAZY_GIRL] = TradeState.WAITING_FOR_SELL
-                    logger.debug(f"State after placing sell order for {cryptoPair.pair}: {cryptoPair.current_state[CRAZY_GIRL]}")
+                    # Setting state to SELLING
+                    cryptoPair.current_state[strategy.name] = TradeState.SELLING
+                    logger.debug(f"State after placing sell order for {cryptoPair.pair}: {cryptoPair.current_state[strategy.name]}")
 
-        elif cryptoPair.current_state[CRAZY_GIRL] == TradeState.WAITING_FOR_SELL:
+        elif cryptoPair.current_state[strategy.name] == TradeState.SELLING:
 
             logger.debug(f"Active orders count: {len(cryptoPair.orders)}")
 
@@ -641,7 +682,7 @@ class BinanceTrader:
             active_order: Optional[Order] = max(
                 (
                     order for order in cryptoPair.orders 
-                    if order.strategy == CRAZY_GIRL and order.timestamp
+                    if order.strategy == strategy.name and order.timestamp
                 ),
                 key=lambda order: (
                     datetime.strptime(order.timestamp, '%Y-%m-%d %H:%M:%S').timestamp() 
@@ -655,7 +696,6 @@ class BinanceTrader:
             # Checking if time has exceeded timeout
             elapsed_time = (datetime.now() - datetime.fromtimestamp(int(active_order.timestamp) / 1000)).total_seconds()
 
-
             # Logging order status information
             logger.info("="*50)
             logger.info(f" Waiting for sell order execution for {cryptoPair.pair} ".center(50, "="))
@@ -666,7 +706,8 @@ class BinanceTrader:
             logger.info(f" Quantity     : {status[ORIG_QTY]}")
             logger.info(f" Value        : {float(status[ORIG_QTY]) * float(status[PRICE]):.2f} USD")
             logger.info(f" Order ID     : {status[ORDER_ID]}")
-            if elapsed_time > timeout:
+
+            if elapsed_time > strategy.timeout:
                 # Canceling the sell order due to timeout
                 canceled_order = await self.cancel_order(cryptoPair.pair, active_order.order_id)
                 if canceled_order:
@@ -675,12 +716,12 @@ class BinanceTrader:
                         cryptoPair.set_status(order_id=active_order.order_id, status="CANCELED")
                     )
                     logger.warning(f"Sell order {active_order.order_id} for {cryptoPair.pair} canceled due to timeout.")
-                    cryptoPair.current_state[CRAZY_GIRL] = TradeState.MONITORING
+                    cryptoPair.current_state[strategy.name] = TradeState.COOLDOWN
                 else:
                     logger.error(f"Failed to cancel sell order {active_order.order_id} for {cryptoPair.pair} due to timeout.")
                 return
             else:
-                logger.info(f" Expired      : {timeout - elapsed_time}")
+                logger.info(f" Expired      : {strategy.timeout - elapsed_time}")
             logger.info("="*50)
 
             if status[STATUS] == FILLED:
@@ -705,7 +746,7 @@ class BinanceTrader:
                     if buy_order:
 
                         logger.info(f"Buy order placed for {cryptoPair.pair}!")
-                        cryptoPair.current_state[CRAZY_GIRL] = TradeState.MONITORING
+                        cryptoPair.current_state[strategy.name] = TradeState.COOLDOWN
 
                         FirebaseManager().add_order_to_firebase(
                             cryptoPair.add_order(
@@ -717,17 +758,66 @@ class BinanceTrader:
                                     sell_price=active_order.sell_price,
                                     buy_price=active_order.buy_price,
                                     timestamp=datetime.fromtimestamp(float(buy_order[WORKING_TIME])/100).strftime('%Y-%m-%d %H:%M:%S'),
-                                    strategy=CRAZY_GIRL,
+                                    strategy=strategy.name,
                                     status=buy_order[STATUS],
                                 )
                             )
                         )
-                        logger.debug(f"Current strategy allocation for {cryptoPair.pair}: {cryptoPair.strategy_allocation[CRAZY_GIRL]}")
+                        logger.debug(f"Current strategy allocation for {cryptoPair.pair}: {PAIRS.pairs[cryptoPair.pair]['strategy_allocation'][strategy.name]}")
                     else:
                         logger.error(f"Failed to place buy order for {cryptoPair.pair}!")
 
-    async def sensible_guy(self, cryptoPair: CryptoPair, strategy: TradeStrategy, timeout: int = 1000):
-        logger.debug(f"Strategy: {strategy.name} for {cryptoPair.pair} state {cryptoPair.current_state[SENSIBLE_GUY]}")
+        elif cryptoPair.current_state[strategy.name] == TradeState.COOLDOWN:
 
-    async def poor_orphan(self, cryptoPair: CryptoPair, strategy: TradeStrategy, timeout: int = 1000):
-        logger.debug(f"Strategy: {strategy.name} for {cryptoPair.pair} state {cryptoPair.current_state[SENSIBLE_GUY]}")
+            last_sell_order: Optional[Order] = max(
+                (
+                    order 
+                    for order in cryptoPair.orders 
+                    if order.strategy == strategy.name 
+                    and order.order_type == Client.SIDE_SELL 
+                    and order.status == FILLED
+                ),
+                key=lambda order: order.timestamp,
+                default=None
+            )
+
+            active_buy_order: Optional[Order] = max(
+                (
+                    order
+                    for order in cryptoPair.orders
+                    if order.strategy == strategy.name
+                    and order.order_type == Client.SIDE_BUY
+                    and order.status == {PENDING, NEW}
+                ),
+                key=lambda order: order.timestamp,
+                default=None
+            )
+
+            if last_sell_order:
+                last_order_time = datetime.fromtimestamp(int(last_sell_order.timestamp) / 1000)
+                elapsed_time = datetime.now() - last_order_time
+
+                cooldown_timedelta = timedelta(seconds=strategy.cooldown)
+
+                if elapsed_time < cooldown_timedelta:
+                    remaining_time = cooldown_timedelta - elapsed_time
+                    logger.info(f"Cooldown active for {cryptoPair.pair} - Waiting {remaining_time} before next order.")
+                else:
+                    cryptoPair.current_state[strategy.name] = TradeState.MONITORING
+            else:
+                logger.debug(f"No last sell order found for {cryptoPair.pair}.")
+
+            if active_buy_order:
+                logger.debug(f"Active buy order for {cryptoPair.pair}: {active_buy_order}")
+
+                status = self.get_order_status(cryptoPair.pair, order_id=active_buy_order.order_id)
+                if status[STATUS] == FILLED:
+                    logger.info(f"Buy order {active_buy_order.order_id} for {cryptoPair.pair} completed during cooldown.")
+
+                    from firebase import FirebaseManager
+                    FirebaseManager().add_order_to_firebase(
+                        cryptoPair.set_status(order_id=active_buy_order.order_id, status=FILLED)
+                    )
+
+                    cryptoPair.current_state[strategy.name] = TradeState.MONITORING
+                    logger.info(f"Cooldown interrupted for {cryptoPair.pair}. Switching back to monitoring.")
