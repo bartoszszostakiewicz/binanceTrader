@@ -634,7 +634,7 @@ class BinanceManager:
 
                 if order.status == FILLED:
                     logger.info(f"Buy order {order.order_id} for {cryptoPair.pair} filled.")
-            else:
+            elif current_status[STATUS] != FILLED:
                 if MONITORING.show_buy_orders:
                     self.print_order(pair=cryptoPair.pair, status=current_status)
 
