@@ -329,6 +329,7 @@ class BinanceManager:
                                 timestamp=order[TIME],
                                 strategy='',
                                 status=order[STATUS],
+                                profit=0,
                             )
                         )
 
@@ -353,6 +354,7 @@ class BinanceManager:
                                 timestamp=order[TIME],
                                 strategy='',
                                 status=order[STATUS],
+                                profit=0,
                             )
                         )
 
@@ -391,6 +393,7 @@ class BinanceManager:
                             timestamp=order[TIME],
                             strategy='',
                             status=order[STATUS],
+                            profit=0,
                         )
                     )
 
@@ -404,6 +407,11 @@ class BinanceManager:
 
         missing_value = missing_quantity * self.get_price(symbol=symbol)
 
+        profit = (
+            total_sell_value -
+            total_buy_value -
+            (estimated_buy_fee + estimated_sell_fee)
+        )
 
         estimated_profit = (
             (total_sell_value + pending_total_sell_value) -
@@ -578,6 +586,58 @@ class BinanceManager:
             logger.error(f"Error placing {side} order for {cryptoPair.pair}: {e}")
             return None
 
+    def print_order(self, pair: str, status):
+        side = SELL if status[SIDE] == SELL else BUY if status[SIDE] == BUY else None
+
+        logger.info("="*50)
+        logger.info(f" Waiting for {side} order execution for {pair} ".center(50, "="))
+        logger.info("="*50)
+        logger.info(f" Symbol       : {status[SYMBOL]}")
+        logger.info(f" Price        : {status[PRICE]}")
+        logger.info(f" Current Price: {self.get_price(status[SYMBOL]):.10f}")
+        logger.info(f" Quantity     : {status[ORIG_QTY]}")
+        logger.info(f" Value        : {float(status[ORIG_QTY]) * float(status[PRICE]):.2f} USD")
+        logger.info(f" Order ID     : {status[ORDER_ID]}")
+
+    def monitor_buy_orders(self, cryptoPair: CryptoPair, strategy: TradeStrategy):
+        """
+        Monitors all buy orders for a crypto pair. Updates Firebase if statuses change.
+
+        Parameters:
+            cryptoPair (CryptoPair): The crypto pair object being monitored.
+            strategy (TradeStrategy): The strategy object associated with the buy orders.
+        """
+        global MONITORING
+
+        from firebase import FirebaseManager
+
+        buy_orders = [
+            order for order in cryptoPair.orders
+            if order.strategy == strategy.name and order.order_type == Client.SIDE_BUY
+        ]
+
+        logger.info(f"Monitoring buy orders for {cryptoPair.pair} ({strategy.name}). Total buy orders: {len(buy_orders)}")
+
+        for order in buy_orders:
+            current_status = self.get_order_status(cryptoPair.pair, order_id=order.order_id)
+
+            if current_status[STATUS] != order.status:
+
+                logger.debug(f"Id of object order: {id(order.status)}")
+                order.status = current_status[STATUS]
+                logger.debug(f"Id of object order: {id(order.status)}")
+
+                from firebase import FirebaseManager
+                FirebaseManager().add_order_to_firebase(
+                    cryptoPair.set_status(order_id=order.order_id, status=FILLED)
+                )
+
+                if order.status == FILLED:
+                    logger.info(f"Buy order {order.order_id} for {cryptoPair.pair} filled.")
+            else:
+                if MONITORING.show_buy_orders:
+                    self.print_order(pair=cryptoPair.pair, status=current_status)
+
     async def handle_strategies(self, cryptoPair: CryptoPair):
         global STRATEGIES
         global PAIRS
@@ -600,12 +660,15 @@ class BinanceManager:
         else:
             logger.debug(f"Skipping strategy {strategy.name} for pair {cryptoPair.pair} due to zero allocation")
 
+
         await asyncio.gather(*tasks)
 
     async def process_strategy(self, cryptoPair: CryptoPair, strategy: TradeStrategy):
         global PAIRS
 
         logger.debug(f"Strategy: {strategy.name} for {cryptoPair.pair} - Current state: {cryptoPair.current_state[strategy.name]}")
+
+        self.monitor_buy_orders(cryptoPair=cryptoPair, strategy=strategy)
 
         if cryptoPair.current_state[strategy.name] == TradeState.MONITORING:
 
@@ -664,6 +727,7 @@ class BinanceManager:
                                 timestamp=sell_order[WORKING_TIME],
                                 strategy=strategy.name,
                                 status=sell_order[STATUS],
+                                profit = 0,
                             )
                         )
                     )
@@ -696,16 +760,7 @@ class BinanceManager:
             # Checking if time has exceeded timeout
             elapsed_time = (datetime.now() - datetime.fromtimestamp(int(active_order.timestamp) / 1000)).total_seconds()
 
-            # Logging order status information
-            logger.info("="*50)
-            logger.info(f" Waiting for sell order execution for {cryptoPair.pair} ".center(50, "="))
-            logger.info("="*50)
-            logger.info(f" Symbol       : {status[SYMBOL]}")
-            logger.info(f" Price        : {status[PRICE]}")
-            logger.info(f" Current Price: {self.get_price(status[SYMBOL])}")
-            logger.info(f" Quantity     : {status[ORIG_QTY]}")
-            logger.info(f" Value        : {float(status[ORIG_QTY]) * float(status[PRICE]):.2f} USD")
-            logger.info(f" Order ID     : {status[ORDER_ID]}")
+            self.print_order(cryptoPair.pair, status=status)
 
             if elapsed_time > strategy.timeout:
                 # Canceling the sell order due to timeout
@@ -713,7 +768,7 @@ class BinanceManager:
                 if canceled_order:
                     from firebase import FirebaseManager
                     FirebaseManager().add_order_to_firebase(
-                        cryptoPair.set_status(order_id=active_order.order_id, status="CANCELED")
+                        cryptoPair.set_status(order_id=active_order.order_id, status=CANCELED)
                     )
                     logger.warning(f"Sell order {active_order.order_id} for {cryptoPair.pair} canceled due to timeout.")
                     cryptoPair.current_state[strategy.name] = TradeState.COOLDOWN
@@ -760,6 +815,7 @@ class BinanceManager:
                                     timestamp=datetime.fromtimestamp(float(buy_order[WORKING_TIME])/100).strftime('%Y-%m-%d %H:%M:%S'),
                                     strategy=strategy.name,
                                     status=buy_order[STATUS],
+                                    profit = ((float(active_order.sell_price)*float(buy_order[ORIG_QTY])) - (float(active_order.buy_price)*float(buy_order[ORIG_QTY]))),
                                 )
                             )
                         )

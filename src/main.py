@@ -19,6 +19,9 @@ async def main():
 
     cryptoPairs = BinanceManager().fetch_pairs()
 
+    for cryptoPair in cryptoPairs.pairs:
+        BinanceManager().analyze_orders(cryptoPair.pair, add_missing_orders=False)
+
     i = 0
 
     try:

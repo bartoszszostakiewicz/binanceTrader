@@ -17,17 +17,19 @@ class Order:
     timestamp: str
     strategy: str
     status: str
+    profit: float
 
     def to_dict(self):
         return {
             SYMBOL: self.symbol,
-            "order_id": self.order_id,
-            "order_type": self.order_type,
-            "amount": self.amount,
-            "sell_price": self.sell_price,
-            "buy_price": self.buy_price,
-            "timestamp": self.timestamp,
-            "strategy": self.strategy,
+            ORDER_ID: self.order_id,
+            ORDER_TYPE: self.order_type,
+            AMOUNT: self.amount,
+            SELL_PRICE: self.sell_price,
+            BUY_PRICE: self.buy_price,
+            TIMESTAMP: self.timestamp,
+            STRATEGY: self.strategy,
+            PROFIT : self.profit,
             STATUS: self.status,
         }
 
@@ -91,10 +93,9 @@ class Heartbeat:
 
     @staticmethod
     def collect_system_metrics():
-        # Pobranie aktualnych danych systemowych
-        cpu_per_core = psutil.cpu_percent(percpu=True, interval=1)  # Zużycie CPU na każdy rdzeń
+        cpu_per_core = psutil.cpu_percent(percpu=True, interval=1)
         memory_info = psutil.virtual_memory()
-        memory_usage = memory_info.used / (1024 ** 2)  # Zużycie pamięci w MB
+        memory_usage = memory_info.used / (1024 ** 2)
 
         return {
             "cpu_per_core": cpu_per_core,
@@ -103,8 +104,8 @@ class Heartbeat:
 
     @staticmethod
     def create_heartbeat(status: str, version: str):
-        system_metrics = Heartbeat.collect_system_metrics()  # Używamy bezpośrednio Heartbeat
-        return Heartbeat(  # Tworzymy instancję Heartbeat
+        system_metrics = Heartbeat.collect_system_metrics()
+        return Heartbeat(
             timestamp=datetime.now(),
             status=status,
             version=version,

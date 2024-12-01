@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime, timedelta
 import signal
 import threading
 import time
@@ -22,13 +23,16 @@ class FirebaseManager:
             cls._instance = super().__new__(cls)
         return cls._instance
 
-    def __init__(self, trader=None):
+    def __init__(self):
         if not hasattr(self, 'initialized'):
             logger.debug("Initializing FirebaseManager")
             self.initialized = True
             self.dbUrl = 'https://bintrader-ffeeb-default-rtdb.firebaseio.com/'
             self.listeners = []
             self.threads = []
+            self.cached_profit = 0.0
+            self.last_profit_update = None
+            self.profit_update_interval = timedelta(hours=1)
 
             try:
                 firebase_key_path = getenv(FIREBASE_KEY_PATH)
@@ -44,7 +48,7 @@ class FirebaseManager:
                 logger.debug("Private and public ips was set successfully")
                 self.save_ips_to_firebase()
 
-                self.ref = db.reference("/CryptoTrading", url=self.dbUrl)
+                self.ref = db.reference(DATABASE_PATH, url=self.dbUrl)
                 logger.debug("Firebase database reference set successfully.")
 
             except FileNotFoundError as e:
@@ -56,32 +60,23 @@ class FirebaseManager:
                 raise ValueError(f"Failed to initialize Firebase: {str(e)}")
 
     def update_profit(self, profit: float):
-        ref_profit = db.reference("/CryptoTrading/Wallet/Profit", url=self.dbUrl)
+        ref_profit = db.reference(PROFIT_PATH, url=self.dbUrl)
         ref_profit.set(profit)
 
-    def update_value(self, values: tuple):
-        stablecoin_value, crypto_value = values
-        total_value = stablecoin_value + crypto_value
-
-        ref_profit = db.reference("/CryptoTrading/Wallet/StablecoinsValue", url=self.dbUrl)
-        ref_profit.set(stablecoin_value)
-        ref_profit = db.reference("/CryptoTrading/Wallet/CryptoValue", url=self.dbUrl)
-        ref_profit.set(crypto_value)
-        ref_profit = db.reference("/CryptoTrading/Wallet/TotalValue", url=self.dbUrl)
-        ref_profit.set(total_value)
-
-    def send_heartbeat(self ,status="OK", version="1.0.0"):
+    def send_heartbeat(self, version, status="OK"):
         heartbeat = Heartbeat.create_heartbeat(status=status, version=version)
+        self.calculate_and_cache_profit()
 
         heartbeat_data = {
-            "timestamp": heartbeat.timestamp.isoformat().replace("T"," | "),
+            TIMESTAMP: heartbeat.timestamp.isoformat().replace("T"," | "),
             STATUS: heartbeat.status,
             "version": heartbeat.version,
             "cpu_load": heartbeat.cpu_load,
             "memory_usage": heartbeat.memory_usage,
+            "profit" : self.cached_profit
         }
 
-        self.ref = db.reference("/CryptoTrading/Heartbeat", url=self.dbUrl)
+        self.ref = db.reference(HEARTBEAT_PATH, url=self.dbUrl)
         self.ref.set(heartbeat_data)
 
     def add_order_to_firebase(self, order: Order):
@@ -93,13 +88,13 @@ class FirebaseManager:
             order (Order): The order object to be added or updated.
         """
         try:
-            self.ref = db.reference(f"/CryptoTrading/Orders/{order.order_id}", url=self.dbUrl)
+            self.ref = db.reference(ORDERS_PATH + '/' + str(order.order_id), url=self.dbUrl)
 
             existing_order = self.ref.get()
 
             if existing_order is not None:
                 if existing_order[STATUS] != order.status:
-                    self.ref.update(order.to_dict())
+                    self.ref.update({STATUS: order.status})
                     logger.info(f"Order with ID {order.order_id} updated in Firebase (status changed from "
                                 f"{existing_order[STATUS]} to {order.status}).")
                 else:
@@ -135,6 +130,46 @@ class FirebaseManager:
             logger.info(f"TCP Tunnel{ngrok_tunnel} saved successfully to Firebase.")
         except Exception as e:
             logger.exception(f"Failed to save or update IPs in Firebase: {e}")
+
+    def calculate_total_profit(self) -> float:
+        """
+        Calculates the total profit from orders in Firebase Realtime Database 
+        with status 'FILLED' and side 'BUY'.
+
+        Returns:
+            float: Total profit from matching orders.
+        """
+        try:
+            ref = db.reference(ORDERS_PATH, url=self.dbUrl)
+            orders = ref.get()
+
+            if not orders:
+                logger.info("No orders in database.")
+                return 0.0
+
+            total_profit = 0.0
+            for order_id, order in orders.items():
+                if order.get(STATUS) == FILLED and order.get(ORDER_TYPE) == BUY and order.get(PROFIT) != None:
+                    logger.debug(f"Order: {order}")
+                    total_profit += float(order.get(PROFIT))
+
+            return total_profit
+
+        except Exception as e:
+            logger.exception(f"Error while calculating total profit: {e}")
+            return 0.0
+
+    def calculate_and_cache_profit(self):
+        """
+        Updates the gain in the buffer if time has passed since the last update.
+        """
+        now = datetime.now()
+        if self.last_profit_update is None or (now - self.last_profit_update) >= self.profit_update_interval:
+            logger.info("Calculating and caching total profit.")
+            self.cached_profit = self.calculate_total_profit()
+            self.last_profit_update = now
+        else:
+            logger.debug("Using cached profit value.")
 
     async def shutdown(self, loop):
         """Closes active tasks and closes the loop safely."""
@@ -176,12 +211,14 @@ class FirebaseManager:
         thread2 = threading.Thread(target=self.monitor_variable, args=(POWER_STATUS_PATH, self.power_status_listener), daemon=True)
         thread3 = threading.Thread(target=self.monitor_variable, args=(STRATEGIES_PATH, self.strategies_listener), daemon=True)
         thread4 = threading.Thread(target=self.monitor_variable, args=(PAIRS_PATH, self.pairs_listener), daemon=True)
+        thread5 = threading.Thread(target=self.monitor_variable, args=(MONITORING_PATH, self.monitoring_buy_orders_listener), daemon=True)
 
-        self.threads.extend([thread1, thread2, thread3])
+        self.threads.extend([thread1, thread2, thread3, thread4, thread5])
         thread1.start()
         thread2.start()
         thread3.start()
         thread4.start()
+        thread5.start()
 
     def logging_level_listener(self, event):
         global LOGGING_LEVEL
@@ -204,6 +241,12 @@ class FirebaseManager:
 
         POWER_STATUS.power_status = event.data
         logger.info(f"Power status changed to: {POWER_STATUS.power_status}")
+
+    def monitoring_buy_orders_listener(self, event):
+        global MONITORING
+
+        MONITORING.show_buy_orders = event.data
+        logger.info(f"Show buy orders changed to: {MONITORING.show_buy_orders}")
 
     def strategies_listener(self, event):
         """Listener for updates in the STRATEGIES path."""

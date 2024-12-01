@@ -44,6 +44,10 @@ class Pairs:
     "XLMUSDT"  : { "strategy_allocation": { "crazy_girl": 1, "poor_orphan": 0, "sensible_guy": 0 }, "trading_percentage": 1 },
 }
 
+@dataclass
+class Monitoring:
+    show_buy_orders = False
+
 
 class Strategies:
     strategies: Dict[str, TradeStrategy]  = {
