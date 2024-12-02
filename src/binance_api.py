@@ -847,6 +847,7 @@ class BinanceManager:
                     for order in cryptoPair.orders
                     if order.strategy == strategy.name
                     and order.order_type == Client.SIDE_BUY
+                    and isinstance(order.timestamp, int)
                 ),
                 key=lambda order: order.timestamp,
                 default=None
