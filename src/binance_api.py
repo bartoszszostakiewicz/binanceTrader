@@ -616,16 +616,14 @@ class BinanceManager:
             if order.strategy == strategy.name and order.order_type == Client.SIDE_BUY
         ]
 
-        logger.info(f"Monitoring buy orders for {cryptoPair.pair} ({strategy.name}). Total buy orders: {len(buy_orders)}")
+        active_buy_counter = 0
 
         for order in buy_orders:
             current_status = self.get_order_status(cryptoPair.pair, order_id=order.order_id)
 
             if current_status[STATUS] != order.status:
 
-                logger.debug(f"Id of object order: {id(order.status)}")
                 order.status = current_status[STATUS]
-                logger.debug(f"Id of object order: {id(order.status)}")
 
                 from firebase import FirebaseManager
                 FirebaseManager().add_order_to_firebase(
@@ -634,9 +632,13 @@ class BinanceManager:
 
                 if order.status == FILLED:
                     logger.info(f"Buy order {order.order_id} for {cryptoPair.pair} filled.")
+                else:
+                    active_buy_counter += 1
             elif current_status[STATUS] != FILLED:
                 if MONITORING.show_buy_orders:
                     self.print_order(pair=cryptoPair.pair, status=current_status)
+
+            logger.info(f"Monitoring buy orders for {cryptoPair.pair} ({strategy.name}). Total buy orders: {active_buy_counter}")
 
     async def handle_strategies(self, cryptoPair: CryptoPair):
         global STRATEGIES
@@ -792,9 +794,9 @@ class BinanceManager:
                 if active_order:
 
                     buy_order = await self.limit_order(
-                        cryptoPair=cryptoPair, 
-                        quantity=active_order.amount, 
-                        price=active_order.buy_price, 
+                        cryptoPair=cryptoPair,
+                        quantity=active_order.amount,
+                        price=active_order.buy_price,
                         side=Client.SIDE_BUY
                     )
 
@@ -802,7 +804,9 @@ class BinanceManager:
 
                         logger.info(f"Buy order placed for {cryptoPair.pair}!")
                         cryptoPair.current_state[strategy.name] = TradeState.COOLDOWN
-
+                        sell_fee = float(buy_order[ORIG_QTY]) * float(active_order.sell_price) * float(FEE_SELL_BINANCE_VALUE)
+                        buy_fee = float(buy_order[ORIG_QTY]) * float(active_order.buy_price) * float(FEE_SELL_BINANCE_VALUE)
+                        total_fees = sell_fee + buy_fee
                         FirebaseManager().add_order_to_firebase(
                             cryptoPair.add_order(
                                 Order(
@@ -815,7 +819,7 @@ class BinanceManager:
                                     timestamp=datetime.fromtimestamp(float(buy_order[WORKING_TIME])/100).strftime('%Y-%m-%d %H:%M:%S'),
                                     strategy=strategy.name,
                                     status=buy_order[STATUS],
-                                    profit = ((float(active_order.sell_price)*float(buy_order[ORIG_QTY])) - (float(active_order.buy_price)*float(buy_order[ORIG_QTY]))),
+                                    profit = ((float(active_order.sell_price)*float(buy_order[ORIG_QTY])) - (float(active_order.buy_price)*float(buy_order[ORIG_QTY]))) - total_fees,
                                 )
                             )
                         )
@@ -837,17 +841,18 @@ class BinanceManager:
                 default=None
             )
 
-            active_buy_order: Optional[Order] = max(
+            latest_buy_order: Optional[Order] = max(
                 (
                     order
                     for order in cryptoPair.orders
                     if order.strategy == strategy.name
                     and order.order_type == Client.SIDE_BUY
-                    and order.status == {PENDING, NEW}
                 ),
                 key=lambda order: order.timestamp,
                 default=None
             )
+
+            logger.debug(f"Latest active order id:{latest_buy_order.order_id}")
 
             if last_sell_order:
                 last_order_time = datetime.fromtimestamp(int(last_sell_order.timestamp) / 1000)
@@ -863,16 +868,16 @@ class BinanceManager:
             else:
                 logger.debug(f"No last sell order found for {cryptoPair.pair}.")
 
-            if active_buy_order:
-                logger.debug(f"Active buy order for {cryptoPair.pair}: {active_buy_order}")
+            if latest_buy_order:
+                logger.debug(f"Active buy order for {cryptoPair.pair}: {latest_buy_order}")
 
-                status = self.get_order_status(cryptoPair.pair, order_id=active_buy_order.order_id)
+                status = self.get_order_status(cryptoPair.pair, order_id=latest_buy_order.order_id)
                 if status[STATUS] == FILLED:
-                    logger.info(f"Buy order {active_buy_order.order_id} for {cryptoPair.pair} completed during cooldown.")
+                    logger.info(f"Buy order {latest_buy_order.order_id} for {cryptoPair.pair} completed during cooldown.")
 
                     from firebase import FirebaseManager
                     FirebaseManager().add_order_to_firebase(
-                        cryptoPair.set_status(order_id=active_buy_order.order_id, status=FILLED)
+                        cryptoPair.set_status(order_id=latest_buy_order.order_id, status=FILLED)
                     )
 
                     cryptoPair.current_state[strategy.name] = TradeState.MONITORING
