@@ -36,18 +36,13 @@ async def main():
                     crypto_pair.crypto_amount_free = crypto_amounts[CRYPTO_AMOUNT_FREE]
                     crypto_pair.crypto_amount_locked = crypto_amounts[CRYPTO_AMOUNT_LOCKED]
 
-                    crypto_pair.value = float(crypto_pair.crypto_amount_free) * float(
-                        BinanceManager().get_price(crypto_pair.pair)
-                    )
-
-                    if (float(crypto_pair.crypto_amount_free) * float(PAIRS.pairs[crypto_pair.pair]["trading_percentage"])) > crypto_pair.min_notional:
-                        tasks.append(
-                            asyncio.create_task(
-                                BinanceManager().handle_strategies(
-                                    cryptoPair=crypto_pair
-                                )
+                    tasks.append(
+                        asyncio.create_task(
+                            BinanceManager().handle_strategies(
+                                cryptoPair=crypto_pair
                             )
                         )
+                    )
 
                 if tasks:
                     await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)

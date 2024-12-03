@@ -649,7 +649,13 @@ class BinanceManager:
 
         for strategy in strategy_list:
             allocation = float(PAIRS.pairs[cryptoPair.pair]['strategy_allocation'][strategy.name])
-            if allocation > 0:
+
+            cryptoPair.value = float(cryptoPair.crypto_amount_free) * float(
+                    BinanceManager().get_price(cryptoPair.pair)
+            )
+
+            if allocation * cryptoPair.value > cryptoPair.min_notional:
+
                 logger.debug(f"Creating task for strategy {strategy.name} on pair {cryptoPair.pair} with allocation {allocation}")
 
                 task = asyncio.create_task(
@@ -658,10 +664,9 @@ class BinanceManager:
                         strategy=strategy
                     )
                 )
-            tasks.append(task)
-        else:
-            logger.debug(f"Skipping strategy {strategy.name} for pair {cryptoPair.pair} due to zero allocation")
-
+                tasks.append(task)
+            else:
+                logger.debug(f"Skipping strategy {strategy.name} for pair {cryptoPair.pair} due to insufficient value in wallet.")
 
         await asyncio.gather(*tasks)
 
