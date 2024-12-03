@@ -853,9 +853,8 @@ class BinanceManager:
                 default=None
             )
 
-            logger.debug(f"Latest active order id:{latest_buy_order.order_id}")
-
             if last_sell_order:
+
                 last_order_time = datetime.fromtimestamp(int(last_sell_order.timestamp) / 1000)
                 elapsed_time = datetime.now() - last_order_time
 
@@ -870,6 +869,7 @@ class BinanceManager:
                 logger.debug(f"No last sell order found for {cryptoPair.pair}.")
 
             if latest_buy_order:
+
                 logger.debug(f"Active buy order for {cryptoPair.pair}: {latest_buy_order}")
 
                 status = self.get_order_status(cryptoPair.pair, order_id=latest_buy_order.order_id)
