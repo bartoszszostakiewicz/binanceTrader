@@ -8,7 +8,7 @@ from firebase_admin import credentials, db
 from data_classes import Order, Heartbeat
 from globals import *
 from logger import logger, logging
-from utils import get_private_ip, get_public_ip, get_ngrok_tunnel
+from utils import get_private_ip, get_public_ip, get_ngrok_tunnel, update_and_reboot
 from os import getenv
 
 
@@ -212,13 +212,15 @@ class FirebaseManager:
         thread3 = threading.Thread(target=self.monitor_variable, args=(STRATEGIES_PATH, self.strategies_listener), daemon=True)
         thread4 = threading.Thread(target=self.monitor_variable, args=(PAIRS_PATH, self.pairs_listener), daemon=True)
         thread5 = threading.Thread(target=self.monitor_variable, args=(MONITORING_PATH, self.monitoring_buy_orders_listener), daemon=True)
+        thread6 = threading.Thread(target=self.monitor_variable, args=(UPDATE_PATH, self.update_listener), daemon=True)
 
-        self.threads.extend([thread1, thread2, thread3, thread4, thread5])
+        self.threads.extend([thread1, thread2, thread3, thread4, thread5, thread6])
         thread1.start()
         thread2.start()
         thread3.start()
         thread4.start()
         thread5.start()
+        thread6.start()
 
     def logging_level_listener(self, event):
         global LOGGING_LEVEL
@@ -366,3 +368,39 @@ class FirebaseManager:
             logger.warning(f"Unhandled path format: {path}")
 
         logger.info(f"PAIRS: {PAIRS.pairs}")
+
+    def update_listener(self, event):
+        """
+        Listener for the Update class. Reacts to changes in the update status or version from the database.
+
+        :param event: Event containing update information. Expected to receive separate events for 'update' and 'version'.
+        """
+        global UPDATE
+
+        # Check if this event is for 'update' or 'version' and update the respective attribute
+        if event.path == "/update":
+            # Update the `update` field
+            UPDATE.update = bool(event.data)
+            logger.info(f"Update flag changed: Update = {UPDATE.update}")
+        elif event.path == "/version":
+            # Update the `version` field
+            UPDATE.version = str(event.data) if event.data else "None"
+            logger.info(f"Version updated to: Version = {UPDATE.version}")
+        else:
+            # Log an error if the event is not for recognized paths
+            logger.error(f"Unexpected path in update event: {event.path}")
+
+        # Check if an update is required and perform the update
+        if UPDATE.update:
+            if UPDATE.version and UPDATE.version != "None":
+                logger.info(f"Performing update to specific version: {UPDATE.version}")
+                try:
+                    update_and_reboot(target_version=UPDATE.version)
+                except Exception as e:
+                    logger.error(f"Error during update to version {UPDATE.version}: {e}", exc_info=True)
+            else:
+                logger.info("Performing update to the latest version.")
+                try:
+                    update_and_reboot()
+                except Exception as e:
+                    logger.error(f"Error during update to the latest version: {e}", exc_info=True)

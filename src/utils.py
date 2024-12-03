@@ -1,5 +1,10 @@
+import os
 import socket
+import subprocess
+import sys
+import time
 import requests
+from globals import RESTART_COMMAND
 from logger import logger
 from git import Repo
 
@@ -74,3 +79,46 @@ def get_tag():
             tag = t.name
             break
     return tag
+
+def update_and_reboot(target_version=None):
+    """
+    Updates the repository to the latest tag or a specific tag if provided, and restarts the application/system.
+
+    :param target_version: Optional argument to switch to a specific tag. If not provided, switches to the latest tag.
+    """
+    global UPDATE
+    try:
+        repo_path = os.getcwd()
+        repo = Repo(repo_path)
+
+        if repo.is_dirty():
+            logger.warning("The repository has uncommitted changes. Please commit or discard them before updating.")
+            return
+
+        logger.info("Fetching the latest tags from the remote repository...")
+        repo.remotes.origin.fetch("--tags")
+        logger.info("Tags fetched successfully.")
+
+        if target_version:
+            if target_version in [tag.name for tag in repo.tags]:
+                repo.git.checkout(target_version)
+                logger.info(f"Switched to the specified version: {target_version}.")
+            else:
+                logger.error(f"Specified version {target_version} not found in the repository.")
+                return
+        else:
+            tags = sorted(repo.tags, key=lambda t: t.commit.committed_datetime, reverse=True)
+            if not tags:
+                logger.error("No tags available in the repository.")
+                return
+            latest_tag = tags[0]
+            repo.git.checkout(latest_tag.name)
+            logger.info(f"Switched to the latest version: {latest_tag.name}.")
+
+        logger.info("Restarting the application...")
+
+        subprocess.Popen(RESTART_COMMAND, close_fds=True)
+        sys.exit(0)
+
+    except Exception as e:
+        logger.error(f"An error occurred during the update process: {e}")

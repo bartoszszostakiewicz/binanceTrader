@@ -48,6 +48,10 @@ class Pairs:
 class Monitoring:
     show_buy_orders = False
 
+@dataclass
+class Update:
+    update = False
+    version = None
 
 class Strategies:
     strategies: Dict[str, TradeStrategy]  = {

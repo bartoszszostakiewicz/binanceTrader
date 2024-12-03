@@ -11,6 +11,7 @@ POWER_STATUS = PowerStatus()
 STRATEGIES = Strategies()
 PAIRS = Pairs()
 MONITORING = Monitoring()
+UPDATE = Update()
 #########################################################################################
 #GLOBAL VARIABLES END
 #########################################################################################
@@ -28,6 +29,7 @@ STRATEGIES_PATH                 = CONFIG_PATH   + "/Strategies"
 LOGGING_VARIABLE_PATH           = CONFIG_PATH   + "/LOGGING_LEVEL"
 MONITORING_PATH                 = CONFIG_PATH   + "/ShowBuyOrders"
 WALLET_PATH                     = CONFIG_PATH   + "/Wallet"
+UPDATE_PATH                     = CONFIG_PATH   + "/Update"
 PROFIT_PATH                     = WALLET_PATH   + "/Profit"
 #########################################################################################
 #FIREBASE PATH VARIABLES END
@@ -94,3 +96,4 @@ class TradeState(Enum):
     COOLDOWN        = 3
 
 
+RESTART_COMMAND  =  "sudo reboot now"
