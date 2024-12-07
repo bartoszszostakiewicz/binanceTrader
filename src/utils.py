@@ -95,8 +95,12 @@ def update_and_reboot(target_version=None):
             logger.warning("The repository has uncommitted changes. Please commit or discard them before updating.")
             return
 
+        logger.info("Fetching updates from the remote repository...")
+        repo.remotes.origin.fetch()
+        logger.info("Repository fetched successfully.")
+
         logger.info("Fetching the latest tags from the remote repository...")
-        repo.remotes.origin.fetch("--tags")
+        repo.remotes.origin.fetch(tags=True)
         logger.info("Tags fetched successfully.")
 
         if target_version:
