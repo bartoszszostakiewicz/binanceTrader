@@ -96,4 +96,4 @@ class TradeState(Enum):
     COOLDOWN        = 3
 
 
-RESTART_COMMAND  =  "sudo reboot now"
+RESTART_COMMAND  =  ["sudo", "reboot", "now"]
