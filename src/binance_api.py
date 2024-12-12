@@ -9,6 +9,7 @@ from observable import TradeStrategy
 from colorama import Fore, Style, init
 from globals import *
 from logger import logger
+from copy import copy
 
 
 class BinanceManager:
@@ -37,7 +38,6 @@ class BinanceManager:
 
             # Initialize the Binance client
             self.client = Client(api_key, secret_key)
-            self.orders_id = set()
 
             logger.debug(f"Binance Trader successfully intializated!")
 
@@ -503,7 +503,7 @@ class BinanceManager:
                     pair=pair_name,
                     crypto_amount_free=free_value,
                     crypto_amount_locked=locked_value,
-                    orders=[],
+                    buy_orders=[],
                     min_notional=min_notional,
                     profit=0,
                     value=total_value,
@@ -586,18 +586,18 @@ class BinanceManager:
             logger.error(f"Error placing {side} order for {cryptoPair.pair}: {e}")
             return None
 
-    def print_order(self, pair: str, status):
-        side = SELL if status[SIDE] == SELL else BUY if status[SIDE] == BUY else None
+    def print_order(self, pair: str, sell_order):
+        side = SELL if sell_order[SIDE] == SELL else BUY if sell_order[SIDE] == BUY else None
 
         logger.info("="*50)
         logger.info(f" Waiting for {side} order execution for {pair} ".center(50, "="))
         logger.info("="*50)
-        logger.info(f" Symbol       : {status[SYMBOL]}")
-        logger.info(f" Price        : {status[PRICE]}")
-        logger.info(f" Current Price: {self.get_price(status[SYMBOL]):.10f}")
-        logger.info(f" Quantity     : {status[ORIG_QTY]}")
-        logger.info(f" Value        : {float(status[ORIG_QTY]) * float(status[PRICE]):.2f} USD")
-        logger.info(f" Order ID     : {status[ORDER_ID]}")
+        logger.info(f" Symbol       : {sell_order[SYMBOL]}")
+        logger.info(f" Price        : {sell_order[PRICE]}")
+        logger.info(f" Current Price: {self.get_price(sell_order[SYMBOL]):.10f}")
+        logger.info(f" Quantity     : {sell_order[ORIG_QTY]}")
+        logger.info(f" Value        : {float(sell_order[ORIG_QTY]) * float(sell_order[PRICE]):.2f} USD")
+        logger.info(f" Order ID     : {sell_order[ORDER_ID]}")
 
     def monitor_buy_orders(self, cryptoPair: CryptoPair, strategy: TradeStrategy):
         """
@@ -611,14 +611,9 @@ class BinanceManager:
 
         from firebase import FirebaseManager
 
-        buy_orders = [
-            order for order in cryptoPair.orders
-            if order.strategy == strategy.name and order.order_type == Client.SIDE_BUY
-        ]
-
         active_buy_counter = 0
 
-        for order in buy_orders:
+        for order in cryptoPair.buy_orders:
             current_status = self.get_order_status(cryptoPair.pair, order_id=order.order_id)
 
             if current_status[STATUS] != order.status:
@@ -636,7 +631,7 @@ class BinanceManager:
                     active_buy_counter += 1
             elif current_status[STATUS] != FILLED:
                 if MONITORING.show_buy_orders:
-                    self.print_order(pair=cryptoPair.pair, status=current_status)
+                    self.print_order(pair=cryptoPair.pair, sell_order=current_status)
 
             logger.info(f"Monitoring buy orders for {cryptoPair.pair} ({strategy.name}). Total buy orders: {active_buy_counter}")
 
@@ -721,10 +716,7 @@ class BinanceManager:
                 )
 
                 if sell_order:
-                    from firebase import FirebaseManager
-                    FirebaseManager().add_order_to_firebase(
-                        cryptoPair.add_order(
-                            Order(
+                    cryptoPair.active_sell_order = Order(
                                 symbol=sell_order[SYMBOL],
                                 order_id=sell_order[ORDER_ID],
                                 sell_price=sell_order[PRICE],
@@ -736,8 +728,9 @@ class BinanceManager:
                                 status=sell_order[STATUS],
                                 profit = 0,
                             )
-                        )
-                    )
+
+                    from firebase import FirebaseManager
+                    FirebaseManager().add_order_to_firebase(cryptoPair.active_sell_order)
 
                     logger.info(f"Sell order placed for {cryptoPair.pair} at price {sell_price}")
 
@@ -747,120 +740,87 @@ class BinanceManager:
 
         elif cryptoPair.current_state[strategy.name] == TradeState.SELLING:
 
-            logger.debug(f"Active orders count: {len(cryptoPair.orders)}")
-
-            # Retrieving active sell order from `activeOrders`
-            active_order: Optional[Order] = max(
-                (
-                    order for order in cryptoPair.orders 
-                    if order.strategy == strategy.name and order.timestamp
-                ),
-                key=lambda order: (
-                    datetime.strptime(order.timestamp, '%Y-%m-%d %H:%M:%S').timestamp() 
-                    if isinstance(order.timestamp, str) else order.timestamp
-                ),
-                default=None
-            )
-
-            status = self.get_order_status(cryptoPair.pair, order_id=active_order.order_id)
+            sell_order = self.get_order_status(cryptoPair.pair, order_id=cryptoPair.active_sell_order.order_id)
 
             # Checking if time has exceeded timeout
-            elapsed_time = (datetime.now() - datetime.fromtimestamp(int(active_order.timestamp) / 1000)).total_seconds()
+            elapsed_time = (datetime.now() - datetime.fromtimestamp(int(cryptoPair.active_sell_order.timestamp) / 1000)).total_seconds()
 
-            self.print_order(cryptoPair.pair, status=status)
+            self.print_order(cryptoPair.pair, sell_order=sell_order)
 
             if elapsed_time > strategy.timeout:
                 # Canceling the sell order due to timeout
-                canceled_order = await self.cancel_order(cryptoPair.pair, active_order.order_id)
+                canceled_order = await self.cancel_order(cryptoPair.pair, cryptoPair.active_sell_order.order_id)
                 if canceled_order:
+                    cryptoPair.active_sell_order.status = CANCELED
                     from firebase import FirebaseManager
+                    logger.info(f"Active_sell_order marking as cancelled in db {cryptoPair.active_sell_order}")
                     FirebaseManager().add_order_to_firebase(
-                        cryptoPair.set_status(order_id=active_order.order_id, status=CANCELED)
+                        cryptoPair.active_sell_order
                     )
-                    logger.warning(f"Sell order {active_order.order_id} for {cryptoPair.pair} canceled due to timeout.")
-                    cryptoPair.current_state[strategy.name] = TradeState.COOLDOWN
+                    logger.warning(f"Sell order {cryptoPair.active_sell_order.order_id} for {cryptoPair.pair} canceled due to timeout.")
+                    cryptoPair.current_state[strategy.name] = TradeState.MONITORING
                 else:
-                    logger.error(f"Failed to cancel sell order {active_order.order_id} for {cryptoPair.pair} due to timeout.")
+                    logger.error(f"Failed to cancel sell order {cryptoPair.active_sell_order.order_id} for {cryptoPair.pair} due to timeout.")
                 return
             else:
                 logger.info(f" Expired      : {strategy.timeout - elapsed_time}")
             logger.info("="*50)
 
-            if status[STATUS] == FILLED:
-                logger.info(f"Sell order {active_order.order_id} for {cryptoPair.pair} completed. Placing buy order.")
+            if sell_order[STATUS] == FILLED:
 
+                logger.info(f"Sell order {cryptoPair.active_sell_order.order_id} for {cryptoPair.pair} completed. Placing buy order.")
+
+                cryptoPair.executed_sell_order = copy(cryptoPair.active_sell_order)
+                cryptoPair.executed_sell_order.status = FILLED
 
                 from firebase import FirebaseManager
                 FirebaseManager().add_order_to_firebase(
-                    cryptoPair.set_status(order_id=active_order.order_id, status=FILLED)
+                    cryptoPair.executed_sell_order
                 )
 
+                buy_order = await self.limit_order(
+                    cryptoPair=cryptoPair,
+                    quantity=cryptoPair.active_sell_order.amount,
+                    price=cryptoPair.active_sell_order.buy_price,
+                    side=Client.SIDE_BUY
+                )
 
-                if active_order:
+                if buy_order:
 
-                    buy_order = await self.limit_order(
-                        cryptoPair=cryptoPair,
-                        quantity=active_order.amount,
-                        price=active_order.buy_price,
-                        side=Client.SIDE_BUY
-                    )
+                    logger.info(f"Buy order placed for {cryptoPair.pair}!")
 
-                    if buy_order:
+                    sell_fee = float(buy_order[ORIG_QTY]) * float(cryptoPair.active_sell_order.sell_price) * float(FEE_SELL_BINANCE_VALUE)
+                    buy_fee = float(buy_order[ORIG_QTY]) * float(cryptoPair.active_sell_order.buy_price) * float(FEE_SELL_BINANCE_VALUE)
+                    total_fees = sell_fee + buy_fee
 
-                        logger.info(f"Buy order placed for {cryptoPair.pair}!")
-                        cryptoPair.current_state[strategy.name] = TradeState.COOLDOWN
-                        sell_fee = float(buy_order[ORIG_QTY]) * float(active_order.sell_price) * float(FEE_SELL_BINANCE_VALUE)
-                        buy_fee = float(buy_order[ORIG_QTY]) * float(active_order.buy_price) * float(FEE_SELL_BINANCE_VALUE)
-                        total_fees = sell_fee + buy_fee
-                        FirebaseManager().add_order_to_firebase(
-                            cryptoPair.add_order(
-                                Order(
-                                    symbol=buy_order[SYMBOL],
-                                    order_id=buy_order[ORDER_ID],
-                                    order_type=buy_order[SIDE],
-                                    amount=float(buy_order[ORIG_QTY]),
-                                    sell_price=active_order.sell_price,
-                                    buy_price=active_order.buy_price,
-                                    timestamp=datetime.fromtimestamp(float(buy_order[WORKING_TIME])/100).strftime('%Y-%m-%d %H:%M:%S'),
-                                    strategy=strategy.name,
-                                    status=buy_order[STATUS],
-                                    profit = ((float(active_order.sell_price)*float(buy_order[ORIG_QTY])) - (float(active_order.buy_price)*float(buy_order[ORIG_QTY]))) - total_fees,
-                                )
+                    cryptoPair.active_buy_order = Order(
+                                symbol=buy_order[SYMBOL],
+                                order_id=buy_order[ORDER_ID],
+                                order_type=buy_order[SIDE],
+                                amount=float(buy_order[ORIG_QTY]),
+                                sell_price=cryptoPair.active_sell_order.sell_price,
+                                buy_price=cryptoPair.active_sell_order.buy_price,
+                                timestamp=datetime.fromtimestamp(float(buy_order[WORKING_TIME])/100).strftime('%Y-%m-%d %H:%M:%S'),
+                                strategy=strategy.name,
+                                status=buy_order[STATUS],
+                                profit = ((float(cryptoPair.active_sell_order.sell_price)*float(buy_order[ORIG_QTY])) - (float(cryptoPair.active_sell_order.buy_price)*float(buy_order[ORIG_QTY]))) - total_fees,
                             )
-                        )
-                        logger.debug(f"Current strategy allocation for {cryptoPair.pair}: {PAIRS.pairs[cryptoPair.pair]['strategy_allocation'][strategy.name]}")
-                    else:
-                        logger.error(f"Failed to place buy order for {cryptoPair.pair}!")
+
+                    FirebaseManager().add_order_to_firebase(
+                        cryptoPair.add_order(
+                            cryptoPair.active_buy_order
+                            )
+                    )
+                    cryptoPair.current_state[strategy.name] = TradeState.COOLDOWN
+                    logger.debug(f"Current strategy allocation for {cryptoPair.pair}: {PAIRS.pairs[cryptoPair.pair]['strategy_allocation'][strategy.name]}")
+                else:
+                    logger.error(f"Failed to place buy order for {cryptoPair.pair}!")
 
         elif cryptoPair.current_state[strategy.name] == TradeState.COOLDOWN:
 
-            last_sell_order: Optional[Order] = max(
-                (
-                    order 
-                    for order in cryptoPair.orders 
-                    if order.strategy == strategy.name 
-                    and order.order_type == Client.SIDE_SELL 
-                    and order.status == FILLED
-                ),
-                key=lambda order: order.timestamp,
-                default=None
-            )
+            if cryptoPair.executed_sell_order:
 
-            latest_buy_order: Optional[Order] = max(
-                (
-                    order
-                    for order in cryptoPair.orders
-                    if order.strategy == strategy.name
-                    and order.order_type == Client.SIDE_BUY
-                    and isinstance(order.timestamp, int)
-                ),
-                key=lambda order: order.timestamp,
-                default=None
-            )
-
-            if last_sell_order:
-
-                last_order_time = datetime.fromtimestamp(int(last_sell_order.timestamp) / 1000)
+                last_order_time = datetime.fromtimestamp(int(cryptoPair.executed_sell_order.timestamp) / 1000)
                 elapsed_time = datetime.now() - last_order_time
 
                 cooldown_timedelta = timedelta(seconds=strategy.cooldown)
@@ -873,17 +833,17 @@ class BinanceManager:
             else:
                 logger.debug(f"No last sell order found for {cryptoPair.pair}.")
 
-            if latest_buy_order:
+            if cryptoPair.active_buy_order:
 
-                logger.debug(f"Active buy order for {cryptoPair.pair}: {latest_buy_order}")
+                logger.debug(f"Active buy order for {cryptoPair.pair}: {cryptoPair.active_buy_order}")
 
-                status = self.get_order_status(cryptoPair.pair, order_id=latest_buy_order.order_id)
+                status = self.get_order_status(cryptoPair.pair, order_id=cryptoPair.active_buy_order.order_id)
                 if status[STATUS] == FILLED:
-                    logger.info(f"Buy order {latest_buy_order.order_id} for {cryptoPair.pair} completed during cooldown.")
+                    logger.info(f"Buy order {cryptoPair.active_buy_order.order_id} for {cryptoPair.pair} completed during cooldown.")
 
                     from firebase import FirebaseManager
                     FirebaseManager().add_order_to_firebase(
-                        cryptoPair.set_status(order_id=latest_buy_order.order_id, status=FILLED)
+                        cryptoPair.set_status(order_id=cryptoPair.active_buy_order.order_id, status=FILLED)
                     )
 
                     cryptoPair.current_state[strategy.name] = TradeState.MONITORING

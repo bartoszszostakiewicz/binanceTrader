@@ -39,7 +39,10 @@ class CryptoPair:
     value: float
     crypto_amount_free: float
     crypto_amount_locked :float
-    orders: List[Order] = field(default_factory=list)
+    buy_orders: List[Order] = field(default_factory=list)
+    active_buy_order: Order = None
+    active_sell_order: Order = None
+    executed_sell_order: Order = None
     profit: float = 0.0
     min_notional: float = 0.0
     tick_size: float = 0.0
@@ -50,20 +53,12 @@ class CryptoPair:
         POOR_ORPHAN  : TradeState.MONITORING,
     })
 
-    def to_dict(self):
-        return {
-            "pair": self.pair,
-            CRYPTO_AMOUNT_FREE: self.crypto_amount_free,
-            CRYPTO_AMOUNT_LOCKED: self.crypto_amount_locked,
-            "profit": self.profit,
-            "orders": [order.to_dict() for order in self.orders],
-        }
 
     def add_order(self, order: Order):
-        self.orders.append(order)
+        self.buy_orders.append(order)
 
-        if len(self.orders) > MAX_ORDERS_HISTORY_IN_CRYPTO_PAIRS:
-            self.orders.pop(0)
+        if len(self.buy_orders) > MAX_ORDERS_HISTORY_IN_CRYPTO_PAIRS:
+            self.buy_orders.pop(0)
 
         return order
 
@@ -75,7 +70,7 @@ class CryptoPair:
             order_id (str): ID of the order whose status is to be changed.
             status (str): The new status that will be set.
         """
-        for order in self.orders:
+        for order in self.buy_orders:
             if order.order_id == order_id:
                 order.status = status
                 order.timestamp = int(time.time() * 1000)

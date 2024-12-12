@@ -53,6 +53,7 @@ class Update:
     update = False
     version = None
 
+
 class Strategies:
     strategies: Dict[str, TradeStrategy]  = {
     "crazy_girl": TradeStrategy(name="crazy_girl", buy_increase_indicator=0.001, profit_target=0.996, timeout=1000, cooldown=1000),
