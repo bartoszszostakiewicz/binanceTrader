@@ -125,7 +125,6 @@ class BinanceManager:
             dict or None: Information about the canceled order, or None if the cancellation failed.
         """
         try:
-            # Attempt to cancel the order with the specified trading pair and order ID
             response = self.client.cancel_order(
                 symbol=trading_pair,
                 orderId=order_id
@@ -133,9 +132,21 @@ class BinanceManager:
             logger.info(f"Order {order_id} for {trading_pair} has been canceled.")
             return response
         except Exception as e:
-            # Handle errors by logging them and returning None if the cancellation fails
-            logger.exception(f"Failed to cancel order {order_id} for {trading_pair}. Error: {e}")
-            return None
+            try:
+                order_status = self.client.get_order(
+                    symbol=trading_pair,
+                    orderId=order_id
+                )
+
+                if order_status.get('status') == 'FILLED':
+                    logger.info(f"Order {order_id} for {trading_pair} has already been filled.")
+                    return FILLED
+                else:
+                    logger.exception(f"Failed to cancel order {order_id} for {trading_pair}. Error: {e}")
+            except Exception as status_error:
+                logger.exception(f"Failed to retrieve status for order {order_id} for {trading_pair}. Error: {status_error}")
+
+        return None
 
     def get_wallet_balances(self):
         """
@@ -226,7 +237,7 @@ class BinanceManager:
         try:
             # Fetch the current price for the specified trading pair
             ticker = self.client.get_symbol_ticker(symbol=symbol)
-            logger.debug(f"Successfully retrieved price for {symbol}")
+            logger.debug(f"Successfully retrieved price for {symbol}: {ticker[PRICE]}")
             return float(ticker[PRICE])
         except Exception as e:
             # Raise an error if price retrieval fails
@@ -480,7 +491,7 @@ class BinanceManager:
 
         return buy_price, sell_price
 
-    def fetch_pairs(self) -> CryptoPairs: 
+    def fetch_pairs(self) -> CryptoPairs:
         global PAIRS
         wallet = self.get_wallet_balances()
         crypto_pairs = CryptoPairs()
@@ -542,6 +553,41 @@ class BinanceManager:
                 CRYPTO_AMOUNT_FREE: 0,
                 CRYPTO_AMOUNT_LOCKED: 0
             }
+
+    def calculate_quantity(self, strategy: TradeStrategy, cryptoPair: CryptoPair):
+        global PAIRS
+
+        logger.debug(f"Calculating quantity for trading for {cryptoPair.pair}.")
+
+        quantity_of_crypto = 0.00
+
+        if strategy.name == CRAZY_GIRL:
+            quantity_of_crypto = float(cryptoPair.crypto_amount_free) * float(PAIRS.pairs[cryptoPair.pair]["trading_percentage"]) * float(PAIRS.pairs[cryptoPair.pair]['strategy_allocation'][strategy.name])
+        elif strategy.name == SENSIBLE_GUY:
+            quantity_of_crypto = float(cryptoPair.crypto_amount_free) * float(PAIRS.pairs[cryptoPair.pair]["trading_percentage"]) * float(PAIRS.pairs[cryptoPair.pair]['strategy_allocation'][strategy.name])
+        elif strategy.name == POOR_ORPHAN:
+            quantity_of_crypto = (cryptoPair.min_notional + PRICE_TRESHOLD) / self.get_price(cryptoPair.pair)
+
+        logger.debug(f"{cryptoPair.pair} for trading: {quantity_of_crypto}.")
+
+        return quantity_of_crypto
+
+    def validate_price_order(self, cryptoPair: CryptoPair, quantity_of_crypto: float, buy_price: float):
+        logger.debug(f"Validation price order for {cryptoPair.pair}")
+
+        price_order = float(quantity_of_crypto) * float(buy_price)
+        ret_val = True
+
+        if price_order < cryptoPair.min_notional:
+            logger.debug(f"Cannot place sell order for {cryptoPair.pair}: order value ({price_order}) is less than min_notional ({cryptoPair.min_notional}).")
+            logger.debug(f"Required min_notional for {cryptoPair.pair}: is {cryptoPair.min_notional}, but calculated order value is {price_order}.")
+            ret_val = False
+        elif price_order >= cryptoPair.value:
+            logger.debug(f"Cannot place sell order for {cryptoPair.pair}: order value ({price_order}) exceeds available balance ({cryptoPair.value}).")
+            logger.debug(f"Calculated order value for {cryptoPair.pair}: ({price_order}) is higher than available balance ({cryptoPair.value}).")
+            ret_val = False
+
+        return ret_val
 
     async def limit_order(self, cryptoPair: CryptoPair, quantity: float, price: float, side: str):
 
@@ -646,7 +692,7 @@ class BinanceManager:
             allocation = float(PAIRS.pairs[cryptoPair.pair]['strategy_allocation'][strategy.name])
 
             cryptoPair.value = float(cryptoPair.crypto_amount_free) * float(
-                    BinanceManager().get_price(cryptoPair.pair)
+                    self.get_price(cryptoPair.pair)
             )
 
             if allocation * cryptoPair.value > cryptoPair.min_notional:
@@ -674,48 +720,20 @@ class BinanceManager:
 
         if cryptoPair.current_state[strategy.name] == TradeState.MONITORING:
 
-            buy_price, sell_price = self.calculate_buy_and_sell_price(
-                crypto_pair=cryptoPair,
-                strategy=strategy
-            )
+            buy_price, sell_price = self.calculate_buy_and_sell_price(crypto_pair=cryptoPair, strategy=strategy)
+            quantity_of_crypto = self.calculate_quantity(strategy=strategy, cryptoPair=cryptoPair)
 
-            quantity_for_trading = 0
+            if self.validate_price_order(cryptoPair=cryptoPair, quantity_of_crypto=quantity_of_crypto, buy_price=buy_price):
 
-            if strategy.name == CRAZY_GIRL:
-                quantity_for_trading = float(cryptoPair.crypto_amount_free) * float(PAIRS.pairs[cryptoPair.pair]["trading_percentage"]) * float(PAIRS.pairs[cryptoPair.pair]['strategy_allocation'][strategy.name])
-            elif strategy.name == SENSIBLE_GUY:
-                quantity_for_trading = float(cryptoPair.crypto_amount_free) * float(PAIRS.pairs[cryptoPair.pair]["trading_percentage"]) * float(PAIRS.pairs[cryptoPair.pair]['strategy_allocation'][strategy.name])
-            elif strategy.name == POOR_ORPHAN:
-                quantity_for_trading = (cryptoPair.min_notional + PRICE_TRESHOLD) / self.get_price(cryptoPair.pair)
-
-            logger.debug(f"Quantity_for_trading = {quantity_for_trading}.")
-
-            sell_quantity = quantity_for_trading
-            price_order = float(sell_quantity) * float(buy_price)
-
-            logger.debug(f"Crypto free   amount: {cryptoPair.crypto_amount_free} {cryptoPair.pair[:-4]}")
-            logger.debug(f"Crypto locked amount: {cryptoPair.crypto_amount_locked} {cryptoPair.pair[:-4]}")
-
-            # Check if the order value is less than min_notional
-            if price_order < cryptoPair.min_notional:
-                logger.debug(f"Cannot place sell order for {cryptoPair.pair}: order value ({price_order}) is less than min_notional ({cryptoPair.min_notional}).")
-                logger.debug(f"Required min_notional for {cryptoPair.pair}: is {cryptoPair.min_notional}, but calculated order value is {price_order}.")
-
-            # Check if the order value exceeds available balance
-
-            elif price_order >= cryptoPair.value:
-                logger.debug(f"Cannot place sell order for {cryptoPair.pair}: order value ({price_order}) exceeds available balance ({cryptoPair.value}).")
-                logger.debug(f"Calculated order value for {cryptoPair.pair}: ({price_order}) is higher than available balance ({cryptoPair.value}).")
-
-            else:
                 sell_order = await self.limit_order(
                     cryptoPair=cryptoPair,
-                    quantity=sell_quantity,
+                    quantity=quantity_of_crypto,
                     price=sell_price,
                     side=Client.SIDE_SELL
                 )
 
                 if sell_order:
+
                     cryptoPair.active_sell_order = Order(
                                 symbol=sell_order[SYMBOL],
                                 order_id=sell_order[ORDER_ID],
@@ -734,7 +752,6 @@ class BinanceManager:
 
                     logger.info(f"Sell order placed for {cryptoPair.pair} at price {sell_price}")
 
-                    # Setting state to SELLING
                     cryptoPair.current_state[strategy.name] = TradeState.SELLING
                     logger.debug(f"State after placing sell order for {cryptoPair.pair}: {cryptoPair.current_state[strategy.name]}")
 
@@ -742,14 +759,14 @@ class BinanceManager:
 
             sell_order = self.get_order_status(cryptoPair.pair, order_id=cryptoPair.active_sell_order.order_id)
 
-            # Checking if time has exceeded timeout
             elapsed_time = (datetime.now() - datetime.fromtimestamp(int(cryptoPair.active_sell_order.timestamp) / 1000)).total_seconds()
 
             self.print_order(cryptoPair.pair, sell_order=sell_order)
 
             if elapsed_time > strategy.timeout:
-                # Canceling the sell order due to timeout
                 canceled_order = await self.cancel_order(cryptoPair.pair, cryptoPair.active_sell_order.order_id)
+                if canceled_order == FILLED:
+                    logger.debug(f"Cannot cancel order {cryptoPair.active_sell_order.order_id} already filled")
                 if canceled_order:
                     cryptoPair.active_sell_order.status = CANCELED
                     from firebase import FirebaseManager
@@ -759,9 +776,9 @@ class BinanceManager:
                     )
                     logger.warning(f"Sell order {cryptoPair.active_sell_order.order_id} for {cryptoPair.pair} canceled due to timeout.")
                     cryptoPair.current_state[strategy.name] = TradeState.MONITORING
+                    return
                 else:
                     logger.error(f"Failed to cancel sell order {cryptoPair.active_sell_order.order_id} for {cryptoPair.pair} due to timeout.")
-                return
             else:
                 logger.info(f" Expired      : {strategy.timeout - elapsed_time}")
             logger.info("="*50)
