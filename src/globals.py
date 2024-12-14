@@ -1,7 +1,7 @@
 from enum import Enum
 from typing import Dict
 from observable import *
-
+from os import getenv
 
 #########################################################################################
 #GLOBAL VARIABLES START
@@ -19,7 +19,7 @@ UPDATE = Update()
 #########################################################################################
 #FIREBASE PATH VARIABLES START
 #########################################################################################
-DATABASE_PATH                   = "/CryptoTrading"
+DATABASE_PATH                   = f"/{getenv('FIREBASE_PATH')}"
 POWER_STATUS_PATH               = DATABASE_PATH + "/__Power__"
 CONFIG_PATH                     = DATABASE_PATH + "/Config"
 HEARTBEAT_PATH                  = DATABASE_PATH + "/Heartbeat"
