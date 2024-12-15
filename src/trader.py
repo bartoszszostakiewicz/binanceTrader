@@ -78,7 +78,9 @@ class Trader:
                 BinanceManager().get_price(cryptoPair.pair)
             )
 
-            if allocation * cryptoPair.value > cryptoPair.min_notional:
+            crypto_value = allocation * cryptoPair.value
+
+            if crypto_value > cryptoPair.min_notional or cryptoPair.current_state[strategy.name] == TradeState.SELLING:
 
                 logger.debug(f"Creating task for strategy {strategy.name} on pair {cryptoPair.pair} with allocation {allocation}")
 
@@ -90,7 +92,7 @@ class Trader:
                 )
                 tasks.append(task)
             else:
-                logger.debug(f"Skipping strategy {strategy.name} for pair {cryptoPair.pair} due to insufficient value in wallet.")
+                logger.debug(f"Skipping strategy {strategy.name} for pair {cryptoPair.pair} due to insufficient value in wallet {crypto_value}.")
 
         await asyncio.gather(*tasks)
 
