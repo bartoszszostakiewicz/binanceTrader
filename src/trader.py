@@ -80,7 +80,10 @@ class Trader:
 
             crypto_value = allocation * cryptoPair.value
 
-            if crypto_value > cryptoPair.min_notional or cryptoPair.current_state[strategy.name] == TradeState.SELLING:
+            is_crypto_value_valid = crypto_value > cryptoPair.min_notional
+            is_in_selling_or_cooldown = cryptoPair.current_state[strategy.name] in {TradeState.SELLING, TradeState.COOLDOWN}
+
+            if is_crypto_value_valid or is_in_selling_or_cooldown:
 
                 logger.debug(f"Creating task for strategy {strategy.name} on pair {cryptoPair.pair} with allocation {allocation}")
 
@@ -160,7 +163,45 @@ class Trader:
                         cryptoPair.active_sell_order
                     )
                     logger.warning(f"Sell order {cryptoPair.active_sell_order.order_id} for {cryptoPair.pair} canceled due to timeout.")
-                    cryptoPair.current_state[strategy.name] = TradeState.MONITORING
+                    cryptoPair.cancelled_orders += 1
+                    if cryptoPair.cancelled_orders == MAX_CANCELLED_ORDERS:
+
+                        cryptoPair.active_sell_order.sell_price = BinanceManager().get_price(cryptoPair.pair)
+                        cryptoPair.active_sell_order.buy_price *= CANCELED_PROFIT
+
+
+                        sell_order = await BinanceManager().limit_order(
+                            cryptoPair=cryptoPair,
+                            quantity=cryptoPair.active_sell_order.amount,
+                            price=cryptoPair.active_sell_order.sell_price,
+                            side=Client.SIDE_SELL
+                        )
+
+                        if sell_order:
+                            logger.info(f"Immediate sell order placed for {cryptoPair.pair} at market price {cryptoPair.active_sell_order.sell_price}.")
+                            cryptoPair.current_state[strategy.name] = TradeState.SELLING
+
+                            cryptoPair.active_sell_order = Order(
+                                symbol=sell_order[SYMBOL],
+                                order_id=sell_order[ORDER_ID],
+                                sell_price=cryptoPair.active_sell_order.sell_price,
+                                buy_price=cryptoPair.active_sell_order.buy_price,
+                                order_type=sell_order[SIDE],
+                                amount=float(sell_order[ORIG_QTY]),
+                                timestamp=sell_order[WORKING_TIME],
+                                strategy=strategy.name,
+                                status=sell_order[STATUS],
+                                profit=0,
+                            )
+
+                            from firebase import FirebaseManager
+                            FirebaseManager().add_order_to_firebase(cryptoPair.active_sell_order)
+
+                            logger.info(f"Updated sell order placed for {cryptoPair.pair} after multiple cancellations.")
+                        else:
+                            logger.error(f"Failed to place immediate sell order for {cryptoPair.pair}.")
+                    else:
+                        cryptoPair.current_state[strategy.name] = TradeState.MONITORING
                     return
                 else:
                     logger.error(f"Failed to cancel sell order {cryptoPair.active_sell_order.order_id} for {cryptoPair.pair} due to timeout.")
@@ -169,7 +210,7 @@ class Trader:
             logger.info("="*50)
 
             if sell_order[STATUS] == FILLED:
-
+                cryptoPair.cancelled_orders = 0
                 logger.info(f"Sell order {cryptoPair.active_sell_order.order_id} for {cryptoPair.pair} completed. Placing buy order.")
 
                 cryptoPair.executed_sell_order = copy(cryptoPair.active_sell_order)

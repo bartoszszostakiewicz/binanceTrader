@@ -47,6 +47,7 @@ class CryptoPair:
     min_notional: float = 0.0
     tick_size: float = 0.0
     step_size: float = 0.0
+    cancelled_orders: int = 0
     current_state: Dict[str, TradeState] = field(default_factory=lambda: {
         CRAZY_GIRL   : TradeState.MONITORING,
         SENSIBLE_GUY : TradeState.MONITORING,
