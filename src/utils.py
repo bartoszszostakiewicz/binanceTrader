@@ -2,11 +2,15 @@ import os
 import socket
 import subprocess
 import sys
-import time
 import requests
-from globals import RESTART_COMMAND
+from globals import RESTART_COMMAND, SENDER_EMAIL, RECEIVER_EMAIL, SENDER_EMAIL_KEY
 from logger import logger
 from git import Repo
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from os import getenv
+
 
 def get_private_ip():
     """
@@ -126,3 +130,22 @@ def update_and_reboot(target_version=None):
 
     except Exception as e:
         logger.error(f"An error occurred during the update process: {e}")
+
+def send_email(subject, body, to_email = getenv(RECEIVER_EMAIL)):
+
+    msg = MIMEMultipart()
+    msg['From'] = getenv(SENDER_EMAIL)
+    msg['To'] = to_email
+    msg['Subject'] = subject
+
+    msg.attach(MIMEText(body, 'plain'))
+
+    try:
+        server = smtplib.SMTP('smtp.gmail.com', 587)
+        server.starttls()
+        server.login(getenv(SENDER_EMAIL), getenv(SENDER_EMAIL_KEY))
+        server.send_message(msg)
+    except Exception as e:
+        print(f"Failed to send email: {e}")
+    finally:
+        server.quit()

@@ -1,5 +1,4 @@
 from enum import Enum
-from typing import Dict
 from observable import *
 from os import getenv
 
@@ -81,6 +80,9 @@ POOR_ORPHAN   = "poor_orphan"
 CRAZY_GIRL    = "crazy_girl"
 SENSIBLE_GUY  = "sensible_guy"
 
+RECEIVER_EMAIL   = "RECEIVER_EMAIL"
+SENDER_EMAIL     = "SENDER_EMAIL"
+SENDER_EMAIL_KEY = "SENDER_EMAIL_KEY"
 
 FEE_SELL_BINANCE_VALUE = 0.00075
 FEE_BUY_BINANCE_VALUE  = 0.00075

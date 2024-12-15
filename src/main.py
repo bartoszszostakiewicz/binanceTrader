@@ -4,6 +4,7 @@ from firebase import FirebaseManager
 from globals import *
 from logger import logger
 from utils import get_tag
+from trader import Trader
 
 
 VERSION = get_tag()
@@ -17,10 +18,7 @@ async def main():
     FirebaseManager().setup_signal_handler(loop)
     FirebaseManager().start_listener_in_thread()
 
-    cryptoPairs = BinanceManager().fetch_pairs()
-
-    for cryptoPair in cryptoPairs.pairs:
-        BinanceManager().analyze_orders(cryptoPair.pair, add_missing_orders=False)
+    cryptoPairs = Trader().start_trade()
 
     i = 0
 
@@ -38,7 +36,7 @@ async def main():
 
                     tasks.append(
                         asyncio.create_task(
-                            BinanceManager().handle_strategies(
+                            Trader().handle_strategies(
                                 cryptoPair=crypto_pair
                             )
                         )
