@@ -59,6 +59,10 @@ class FirebaseManager:
                 logger.exception("An unexpected error occurred during Firebase initialization.")
                 raise ValueError(f"Failed to initialize Firebase: {str(e)}")
 
+    def setup_firebase(self, loop):
+        self.setup_signal_handler(loop)
+        self.start_listener_in_thread()
+
     def update_profit(self, profit: float):
         ref_profit = db.reference(PROFIT_PATH, url=self.dbUrl)
         ref_profit.set(profit)

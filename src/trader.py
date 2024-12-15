@@ -2,6 +2,7 @@ import asyncio
 from copy import copy
 from datetime import datetime, timedelta
 from data_classes import CryptoPair, CryptoPairs, Order
+from firebase import FirebaseManager
 from globals import *
 from binance_api import BinanceManager
 from binance.client import Client
@@ -24,12 +25,33 @@ class Trader:
         self._initialized = True
 
     def start_trade(self) -> CryptoPairs:
+        loop = asyncio.get_event_loop()
+        FirebaseManager().setup_firebase(loop)
         cryptoPairs = BinanceManager().fetch_pairs()
 
         for cryptoPair in cryptoPairs.pairs:
             BinanceManager().analyze_orders(cryptoPair.pair, add_missing_orders=False)
 
         return cryptoPairs
+
+    async def run_trading_cycle(self, cryptoPairs, version):
+        tasks = []
+        for crypto_pair in cryptoPairs.pairs:
+            self.update_crypto_amounts(crypto_pair)
+            tasks.append(asyncio.create_task(self.handle_strategies(crypto_pair)))
+
+        if tasks:
+            await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+        else:
+            logger.info("No tasks to execute, waiting for conditions to be met.")
+            await asyncio.sleep(5)
+
+        FirebaseManager().send_heartbeat(version=version)
+
+    def update_crypto_amounts(self, crypto_pair: CryptoPair):
+        crypto_amounts = BinanceManager().get_crypto_amounts(crypto_pair.pair)
+        crypto_pair.crypto_amount_free = crypto_amounts[CRYPTO_AMOUNT_FREE]
+        crypto_pair.crypto_amount_locked = crypto_amounts[CRYPTO_AMOUNT_LOCKED]
 
     async def handle_strategies(self, cryptoPair: CryptoPair):
         global STRATEGIES

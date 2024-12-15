@@ -26,6 +26,7 @@ render.experimental.xml
 *.jks
 *.keystore
 bintrader-ffeeb-firebase-adminsdk-6ytwx-e6e7bfbea8.json
+user_config.json
 
 # Google Services (e.g. APIs or Firebase)
 google-services.json

@@ -1,71 +1,35 @@
 import asyncio
-from binance_api import BinanceManager
-from firebase import FirebaseManager
-from globals import *
 from logger import logger
 from utils import get_tag
 from trader import Trader
-
+from globals import POWER_STATUS
 
 VERSION = get_tag()
 
 
 async def main():
     global POWER_STATUS
-    global PAIRS
 
-    loop = asyncio.get_event_loop()
-    FirebaseManager().setup_signal_handler(loop)
-    FirebaseManager().start_listener_in_thread()
+    trader = Trader()
+    cryptoPairs = trader.start_trade()
 
-    cryptoPairs = Trader().start_trade()
+    iteration = 0
 
-    i = 0
-
-    try:
-        while True:
-            if POWER_STATUS.power_status:
-
-                tasks = []
-
-                for crypto_pair in cryptoPairs.pairs:
-
-                    crypto_amounts = BinanceManager().get_crypto_amounts(crypto_pair.pair)
-                    crypto_pair.crypto_amount_free = crypto_amounts[CRYPTO_AMOUNT_FREE]
-                    crypto_pair.crypto_amount_locked = crypto_amounts[CRYPTO_AMOUNT_LOCKED]
-
-                    tasks.append(
-                        asyncio.create_task(
-                            Trader().handle_strategies(
-                                cryptoPair=crypto_pair
-                            )
-                        )
-                    )
-
-                if tasks:
-                    await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
-                else:
-                    logger.info("No tasks to execute, waiting for conditions to be met.")
-                    await asyncio.sleep(5)
-
-                FirebaseManager().send_heartbeat(version=VERSION)
-
-                i += 1
-                logger.debug(f'Iteration {i}')
-            else:
-                logger.info(f"Power status is OFF!")
-                await asyncio.sleep(1)
-
-    except asyncio.CancelledError:
-        logger.info("Main loop cancelled. Cleaning up...")
-    finally:
-        logger.info("Main function finished execution.")
+    while True:
+        if POWER_STATUS.power_status:
+            await trader.run_trading_cycle(cryptoPairs, VERSION)
+            iteration += 1
+            logger.debug(f"Iteration {iteration}")
+        else:
+            logger.info("Power status is OFF. Waiting...")
+            await asyncio.sleep(1)
 
 
 if __name__ == "__main__":
-    loop = asyncio.get_event_loop()
     try:
         asyncio.run(main())
+    except asyncio.CancelledError:
+        logger.info("Main loop cancelled. Cleaning up...")
     except Exception as e:
         logger.error(f"Unhandled exception: {e}")
     finally:
