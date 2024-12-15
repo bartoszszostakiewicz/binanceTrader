@@ -150,7 +150,7 @@ class Trader:
                 canceled_order = await BinanceManager().cancel_order(cryptoPair.pair, cryptoPair.active_sell_order.order_id)
                 if canceled_order == FILLED:
                     logger.debug(f"Cannot cancel order {cryptoPair.active_sell_order.order_id} already filled")
-                if canceled_order:
+                elif canceled_order:
                     cryptoPair.active_sell_order.status = CANCELED
                     from firebase import FirebaseManager
                     logger.info(f"Active_sell_order marking as cancelled in db {cryptoPair.active_sell_order}")
