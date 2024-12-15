@@ -282,6 +282,10 @@ class FirebaseManager:
             if isinstance(event_data, dict):
                 logger.info(f"Replacing strategy {strategy_name} with new data: {event_data}")
                 try:
+                    if 'multiplier' in event_data and event_data['multiplier'] < 1.05:
+                        logger.warning(f"Multiplier for {strategy_name} is below 1.05. Setting to 1.05.")
+                        event_data['multiplier'] = 1.05
+
                     STRATEGIES.strategies[strategy_name] = TradeStrategy(name=strategy_name, **event_data)
                 except TypeError as e:
                     logger.error(f"Failed to update strategy {strategy_name}: {e}")
@@ -293,6 +297,10 @@ class FirebaseManager:
             if strategy_name in STRATEGIES.strategies:
                 current_strategy = STRATEGIES.strategies[strategy_name]
                 if hasattr(current_strategy, field):
+                    if field == 'multiplier' and event_data < 1.05:
+                        logger.warning(f"Multiplier for {strategy_name} is below 1.05. Setting to 1.05.")
+                        event_data = 1.05
+
                     current_value = getattr(current_strategy, field)
                     if current_value != event_data:
                         logger.info(f"Updating {strategy_name}.{field} from {current_value} to {event_data}")

@@ -53,6 +53,17 @@ class Trader:
         crypto_pair.crypto_amount_free = crypto_amounts[CRYPTO_AMOUNT_FREE]
         crypto_pair.crypto_amount_locked = crypto_amounts[CRYPTO_AMOUNT_LOCKED]
 
+    def calculate_quantity(self, strategy: TradeStrategy, cryptoPair: CryptoPair):
+        global PAIRS
+
+        logger.debug(f"Calculating quantity for trading for {cryptoPair.pair}.")
+
+        quantity_of_crypto = ((cryptoPair.min_notional * strategy.multiplier)) / BinanceManager().get_price(cryptoPair.pair)
+
+        logger.debug(f"{cryptoPair.pair} for trading: {quantity_of_crypto}.")
+
+        return quantity_of_crypto
+
     async def handle_strategies(self, cryptoPair: CryptoPair):
         global STRATEGIES
         global PAIRS
@@ -93,7 +104,7 @@ class Trader:
         if cryptoPair.current_state[strategy.name] == TradeState.MONITORING:
 
             buy_price, sell_price = BinanceManager().calculate_buy_and_sell_price(crypto_pair=cryptoPair, strategy=strategy)
-            quantity_of_crypto = BinanceManager().calculate_quantity(strategy=strategy, cryptoPair=cryptoPair)
+            quantity_of_crypto = self.calculate_quantity(strategy=strategy, cryptoPair=cryptoPair)
 
             if BinanceManager().validate_price_order(cryptoPair=cryptoPair, quantity_of_crypto=quantity_of_crypto, buy_price=buy_price):
 

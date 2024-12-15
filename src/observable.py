@@ -28,6 +28,7 @@ class TradeStrategy:
     profit_target: float
     cooldown: int
     timeout: int
+    multiplier: float
 
 @dataclass
 class PowerStatus:
@@ -56,7 +57,7 @@ class Update:
 
 class Strategies:
     strategies: Dict[str, TradeStrategy]  = {
-    "crazy_girl": TradeStrategy(name="crazy_girl", buy_increase_indicator=0.001, profit_target=0.996, timeout=1000, cooldown=1000),
-    "poor_orphan": TradeStrategy(name="poor_orphan", buy_increase_indicator=0.001, profit_target=0.996, timeout=1000, cooldown=1000),
-    "sensible_guy": TradeStrategy(name="sensible_guy", buy_increase_indicator=0.001, profit_target=0.996, timeout=1000, cooldown=1000),
+    "crazy_girl": TradeStrategy(name="crazy_girl", buy_increase_indicator=0.001, profit_target=0.996, timeout=1000, cooldown=1000, multiplier=1.05),
+    "poor_orphan": TradeStrategy(name="poor_orphan", buy_increase_indicator=0.001, profit_target=0.996, timeout=1000, cooldown=1000, multiplier=1.05),
+    "sensible_guy": TradeStrategy(name="sensible_guy", buy_increase_indicator=0.001, profit_target=0.996, timeout=1000, cooldown=1000, multiplier=1.05),
 }

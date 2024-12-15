@@ -546,24 +546,6 @@ class BinanceManager:
                 CRYPTO_AMOUNT_LOCKED: 0
             }
 
-    def calculate_quantity(self, strategy: TradeStrategy, cryptoPair: CryptoPair):
-        global PAIRS
-
-        logger.debug(f"Calculating quantity for trading for {cryptoPair.pair}.")
-
-        quantity_of_crypto = 0.00
-
-        if strategy.name == CRAZY_GIRL:
-            quantity_of_crypto = float(cryptoPair.crypto_amount_free) * float(PAIRS.pairs[cryptoPair.pair]["trading_percentage"]) * float(PAIRS.pairs[cryptoPair.pair]['strategy_allocation'][strategy.name])
-        elif strategy.name == SENSIBLE_GUY:
-            quantity_of_crypto = float(cryptoPair.crypto_amount_free) * float(PAIRS.pairs[cryptoPair.pair]["trading_percentage"]) * float(PAIRS.pairs[cryptoPair.pair]['strategy_allocation'][strategy.name])
-        elif strategy.name == POOR_ORPHAN:
-            quantity_of_crypto = (cryptoPair.min_notional + PRICE_TRESHOLD) / self.get_price(cryptoPair.pair)
-
-        logger.debug(f"{cryptoPair.pair} for trading: {quantity_of_crypto}.")
-
-        return quantity_of_crypto
-
     def validate_price_order(self, cryptoPair: CryptoPair, quantity_of_crypto: float, buy_price: float):
         logger.debug(f"Validation price order for {cryptoPair.pair}")
 
